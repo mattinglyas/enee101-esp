@@ -85,11 +85,11 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   Serial.println();
 
   if (strcmp(methodName, "start") == 0) {
-    LogInfo("Start sending temperature and humidity data");
+    LogInfo("Start sending coordinate data");
     messageSending = true;
   }
   else if (strcmp(methodName, "stop") == 0) {
-    LogInfo("Stop sending temperature and humidity data");
+    LogInfo("Stop sending coordinate data");
     messageSending = false;
   } else if (strcmp(methodName, "led") == 0) {
     LogInfo("Toggling on-board LED");
