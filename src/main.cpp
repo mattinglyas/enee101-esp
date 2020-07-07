@@ -6,9 +6,12 @@
 #include "Esp32MQTTClient.h"
 #include "config.h"
 
-#define DEVICE_ID "MyNodeESP32"
 #define MESSAGE_MAX_LEN 256 // size of message buffer
+
 #define ONBOARD_LED_PIN 2
+
+#define ULTRASOUND_TRIG_PIN 0 
+#define ULTRASOUND_ECHO_PIN 4
 
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char* ssid = CONFIG_WIFI_NAME;
@@ -18,7 +21,7 @@ const char* password = CONFIG_WIFI_PASSWORD;
 static const char* connectionString = CONFIG_CONNECTION_STRING;
 
 // telemetry message
-const char* messageData = "{\"messageId\":%d, \"x_distance\":%d, \"y_distance\":%d}";
+const char* messageData = "{\"messageId\":%d, \"x_distance\":%lf, \"y_distance\":%lf}";
 
 int messageCount = 1; 
 static long interval = 2000; //ms between telemetry messages
@@ -28,8 +31,7 @@ static uint64_t send_interval_ms;
 static bool ledValue = false;
 
 /* DEMO: X AND Y VALUES */
-static int xValue = 500;
-static int yValue = 200;
+static int yValue = 12;
 
 /* //////////////// Utilities //////////////// */
 
@@ -107,7 +109,7 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     JsonVariant newYValue = doc["y"];
 
     /* DEMO: PUT STEPPER MOTOR CODE HERE */
-    xValue = newXValue.as<int>();
+    //xValue = newXValue.as<int>();
     yValue = newYValue.as<int>();
 
   } else {
@@ -122,9 +124,23 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   return result;
 }
 
+double GetUltrasoundDistanceInInches() {
+  // pinModes are necessary for some reason. Code does not work without them
+
+  long duration;
+  pinMode(ULTRASOUND_TRIG_PIN, OUTPUT);
+  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASOUND_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
+  pinMode(ULTRASOUND_ECHO_PIN, INPUT);
+  duration = pulseIn(ULTRASOUND_ECHO_PIN, HIGH);
+  return ((double) duration) / 74 / 2;  
+}
+
 int max(int x, int y) { return (x > y) ? x : y;}
 int min(int x, int y) { return (x < y) ? x : y;}
-
 
 /* //////////////// Arduino Sketch //////////////// */
 
@@ -132,6 +148,9 @@ void setup() {
   Serial.begin(115200);
   Serial.println(F("ESP32 Device"));
   Serial.println(F("Initializing..."));
+
+  pinMode(ULTRASOUND_ECHO_PIN, INPUT);
+  pinMode(ULTRASOUND_TRIG_PIN, OUTPUT);
 
   pinMode(ONBOARD_LED_PIN, OUTPUT);
   digitalWrite(ONBOARD_LED_PIN, ledValue);
@@ -162,8 +181,8 @@ void loop() {
       char messagePayload[MESSAGE_MAX_LEN];
 
       /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
-      int xDistance = min(max(xValue + random(0, 20) - 10, 0), 1000);
-      int yDistance = min(max(yValue + random(0, 20) - 10, 0), 1000);
+      double xDistance = GetUltrasoundDistanceInInches();
+      double yDistance = (double) yValue;
 
       // copy into message
       snprintf(messagePayload, MESSAGE_MAX_LEN, messageData, messageCount++, xDistance, yDistance);
