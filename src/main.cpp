@@ -7,11 +7,25 @@
 #include "config.h"
 
 #define MESSAGE_MAX_LEN 256 // size of message buffer
-
 #define ONBOARD_LED_PIN 2
 
-#define ULTRASOUND_TRIG_PIN 0 
-#define ULTRASOUND_ECHO_PIN 4
+#define ULTRASOUND_X_TRIG_PIN 5 
+#define ULTRASOUND_X_ECHO_PIN 18
+#define ULTRASOUND_Y_TRIG_PIN 16
+#define ULTRASOUND_Y_ECHO_PIN 17
+
+#define MOTOR_X_STEP_PIN 23
+#define MOTOR_X_DIR_PIN 22
+
+#define MOTOR_Y_STEP_PIN 21
+#define MOTOR_Y_DIR_PIN 19
+
+#define CLK_PIN 4
+#define DAT_PIN 0
+
+/* //////////////// Constants //////////////// */
+
+/* Communications */
 
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char* ssid = CONFIG_WIFI_NAME;
@@ -30,10 +44,38 @@ static bool messageSending = true;
 static uint64_t send_interval_ms;
 static bool ledValue = false;
 
-/* DEMO: X AND Y VALUES */
-static int yValue = 12;
+/* Hardware */
+
+// initial values
+static unsigned long xnum = 0;
+static unsigned long ynum = 0;
+static unsigned long t0;
+static unsigned long t0m;
+static unsigned long t1 = 0;
+static unsigned long t1m = 0;
+static bool xstat = LOW;
+static bool ystat = LOW;
+static bool reset = false;
+
+// misc vars for step motor
+static int ctrstep0 = 0;
+static int ctrstep1 = 0;
+static unsigned long ctrstepx = 0;
+static unsigned long ctrstepy = 0;
+static int flag0 = 0;      // flag for stepper motor taking turns per main loop
+static int flagsx = 0;     // flag for keeping track of input signs for x
+static int flagsy = 0;     // flag for keeping track of input signs for y
+static int xValue = 0;     // used as storage to pass inputted values in
+static int yValue = 0;
+
+// misc vars for encoder operation
+int enccntx = 0;
+int last;
+int cur;
 
 /* //////////////// Utilities //////////////// */
+
+/* Communications */ 
 
 static void InitWifi() {
   Serial.print(F("Connecting to ")); Serial.println(ssid);
@@ -109,8 +151,10 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     JsonVariant newYValue = doc["y"];
 
     /* DEMO: PUT STEPPER MOTOR CODE HERE */
-    //xValue = newXValue.as<int>();
+    xValue = newXValue.as<int>();
     yValue = newYValue.as<int>();
+
+    if (xValue == 9999 && yValue == 9999) reset = true;
 
   } else {
     LogInfo("No method %s found", methodName);
@@ -124,18 +168,119 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   return result;
 }
 
-double GetUltrasoundDistanceInInches() {
+/* Hardware */
+
+void mcontrol() {
+  if (xValue > 0) {
+    // encod();
+    /*  flag0 is used to switch between stepping x and y motors once per loop because they use the same
+     *  timer (t0 - t1 > 100, i.e. ~100 microseconds) to step.
+     *  the or case is used for both axes of opposing axes in case one was moved more than the other
+     */
+    if((t0 - t1 > 100 && flag0 == 0) || (t0 - t1 > 100 && yValue == 0)) {
+      if(xstat == LOW)    // stepper motor function i.e. swap b/w HIGH & LOW on the xstep pin with a ~200us period
+        xstat = HIGH;
+      else
+        xstat = LOW;
+      digitalWrite(MOTOR_X_STEP_PIN, xstat);
+      t1 = t0;            // t0 updates every main loop, this only updates once ~100 us *if condition is met above
+      flag0 = 1;          // flag0 swaps back and forth between x and y motors
+      ctrstepx++;         // ctrstepx keeps track of stepper motor steps on x axis
+    }
+    // one step equates to a incredibly small rotation so axis[] (inputted number) is upscaled by 50
+    if(ctrstepx > xValue) {   // the motor stops stepping once this condition is met.
+    //if (enccntx >= xValue) {     // alternative control scheme with encoder..
+      if(flagsx == 1)               // flags[ign]x is determined in the function input(), it is to keep track of the sign
+        xnum = xnum - ctrstepx;     // of the input.
+      if(flagsx == 0)
+        xnum = xnum + ctrstepx;
+        
+      ctrstepx = 0;                 // step counter resets after motor is done moving
+      xValue = 0;                  // input axis # resets after motor is done moving
+      // enccntx = 0;
+      // Serial.println(xnum);
+    }
+  }
+  if (yValue > 0) {
+    // encody();
+    /*  flag0 is used to switch between stepping x and y motors once per loop because they use the same
+     *  timer (t0 - t1 > 100, i.e. ~100 microseconds) to step.
+     *  the or case is used for both axes of opposing axes in case one was moved more than the other
+     */
+    if((t0 - t1 > 100 && flag0 == 1) || (t0 - t1 > 100 && xValue == 0)) {
+      if (ystat == LOW)
+        ystat = HIGH;
+      else
+        ystat = LOW;
+      digitalWrite(MOTOR_Y_STEP_PIN, ystat);
+      t1 = t0;            // t0 updates every main loop, this only updates once ~100 us *if condition is met above
+      flag0 = 0;          // flag0 swaps back and forth between x and y motors
+      ctrstepy++;         // ctrstepx keeps track of stepper motor steps on x axis
+    }
+                                    // one step equates to a incredibly small rotation so axis[] (inputted number) is upscaled by 50
+    if(ctrstepy > yValue) {   // the motor stops stepping once this condition is met.
+    //if (enccntx >= xValue) {     // alternative control scheme with encoder..
+      if(flagsy == 1)               // flags[ign]y is determined in the function input(), it is to keep track of the sign
+        ynum = ynum - ctrstepy;     // of the input.
+      if(flagsy == 0)
+        ynum = ynum + ctrstepy;
+      ctrstepy = 0;                 // step counter resets after motor is done moving
+      yValue = 0;                  // input axis # resets after motor is done moving
+      // enccnty = 0;
+      // Serial.println(ynum);
+    }
+  }
+}
+
+void resetpos() {
+  if(reset == true) {
+    if (xnum > 0) {
+      if((t0 - t1 > 100 && flag0 == 0) || (t0 - t1 > 100 && ynum == 0)) {
+        if(xstat == LOW)
+          xstat = HIGH;
+        else
+          xstat = LOW;
+        digitalWrite(MOTOR_X_STEP_PIN, xstat);
+        t1 = t0;
+        flag0 = 1;
+        xnum--;
+      }
+      // Serial.println(xnum);
+    }
+    if (ynum > 0) {     //if a received
+      if((t0 - t1 > 100 && flag0 == 1) || (t0 - t1 > 100 && xnum == 0)) {
+        if(ystat == LOW)
+          ystat = HIGH;
+        else
+          ystat = LOW;
+        digitalWrite(MOTOR_Y_STEP_PIN, ystat);
+        t1 = t0;
+        flag0 = 0;
+        ynum--;
+      }
+      // Serial.println(ynum);
+    }
+    if(ynum == 0 && xnum == 0) {
+      reset = false;
+    }
+  }
+}
+
+long GetUltrasoundDelayUs(int trigPort, int echoPort) {
   // pinModes are necessary for some reason. Code does not work without them
 
   long duration;
-  pinMode(ULTRASOUND_TRIG_PIN, OUTPUT);
-  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
+  pinMode(trigPort, OUTPUT);
+  digitalWrite(trigPort, LOW);
   delayMicroseconds(2);
-  digitalWrite(ULTRASOUND_TRIG_PIN, HIGH);
+  digitalWrite(trigPort, HIGH);
   delayMicroseconds(10);
-  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
-  pinMode(ULTRASOUND_ECHO_PIN, INPUT);
-  duration = pulseIn(ULTRASOUND_ECHO_PIN, HIGH);
+  digitalWrite(trigPort, LOW);
+  pinMode(echoPort, INPUT);
+  return pulseIn(echoPort, HIGH);
+}
+
+double DelayToInches(long duration) {
   return ((double) duration) / 74 / 2;  
 }
 
@@ -149,10 +294,25 @@ void setup() {
   Serial.println(F("ESP32 Device"));
   Serial.println(F("Initializing..."));
 
-  pinMode(ULTRASOUND_ECHO_PIN, INPUT);
-  pinMode(ULTRASOUND_TRIG_PIN, OUTPUT);
-
+  pinMode(ULTRASOUND_X_ECHO_PIN, INPUT);
+  pinMode(ULTRASOUND_X_TRIG_PIN, OUTPUT);
+  pinMode(ULTRASOUND_Y_ECHO_PIN, INPUT);
+  pinMode(ULTRASOUND_Y_TRIG_PIN, OUTPUT);
+  pinMode(MOTOR_X_DIR_PIN, OUTPUT);
+  pinMode(MOTOR_X_STEP_PIN, OUTPUT);
+  pinMode(MOTOR_Y_DIR_PIN, OUTPUT);
+  pinMode(MOTOR_Y_STEP_PIN, OUTPUT);
   pinMode(ONBOARD_LED_PIN, OUTPUT);
+  pinMode(CLK_PIN, INPUT);
+  pinMode(DAT_PIN, INPUT);
+  
+  digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
+  digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
+  digitalWrite(MOTOR_X_DIR_PIN, LOW);
+  digitalWrite(MOTOR_X_STEP_PIN, LOW);
+  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
+  digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+
   digitalWrite(ONBOARD_LED_PIN, ledValue);
 
   // initialize wifi module
@@ -180,9 +340,8 @@ void loop() {
     if (messageSending && (int)(millis() - send_interval_ms) >= interval) {
       char messagePayload[MESSAGE_MAX_LEN];
 
-      /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
-      double xDistance = GetUltrasoundDistanceInInches();
-      double yDistance = (double) yValue;
+      double xDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN));
+      double yDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN));
 
       // copy into message
       snprintf(messagePayload, MESSAGE_MAX_LEN, messageData, messageCount++, xDistance, yDistance);
@@ -202,5 +361,6 @@ void loop() {
     }
   }
 
-  delay(100);
+  mcontrol(); // motor control
+  resetpos(); // reset position if reset flag is true
 }
