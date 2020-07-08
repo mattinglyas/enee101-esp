@@ -8,7 +8,6 @@
 #include "config.h"
 
 #define MESSAGE_MAX_LEN 256 // size of message buffer
-
 #define ONBOARD_LED_PIN 2
 
 #define ULTRASOUND_X_TRIG_PIN 5 
@@ -26,6 +25,12 @@
 #define DAT_PIN 0
 
 #define STEP_SPEED 100
+
+enum MotorCommand {
+  MOTOR_IDLE = 0, 
+  MOTOR_MOVE = 1, 
+  MOTOR_RESET = 2
+};
 
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char* ssid = CONFIG_WIFI_NAME;
@@ -47,8 +52,8 @@ static bool ledValue = false;
 static int yValue = 0;
 static int xValue = 0;
 
-// Hardware flags for passing info to comms
-static bool newMotorInput = false;
+// Shared resource for hardware and comms thread to communicate values
+static enum MotorCommand newMotorInput = MOTOR_IDLE;
 static int newMotorXInput = 0;
 static int newMotorYInput = 0;
 SemaphoreHandle_t motorMutex;
@@ -57,23 +62,7 @@ SemaphoreHandle_t motorMutex;
 TaskHandle_t commsTask;
 TaskHandle_t motorTask;
 
-/* //////////////// Utilities //////////////// */
-
-static bool InitWifi() {
-  Serial.print(F("Connecting to ")); Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  
-  // hang while not connected (bit of a hack)
-  // TODO make connection time out, return with hasWifi false 
-  do {
-    delay(500);
-    Serial.print(".");
-  } while (WiFi.status() != WL_CONNECTED);
-
-  Serial.println(F("WiFi connected"));
-  Serial.print(F("IP Address: ")); Serial.println(WiFi.localIP());
-  return true;
-}
+/* //////////////// Azure Utilities //////////////// */
 
 static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result) {
   if (result == IOTHUB_CLIENT_CONFIRMATION_OK) {
@@ -132,18 +121,18 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     JsonVariant newXValue = doc["x"];
     JsonVariant newYValue = doc["y"];
 
-    // pass new values into shared variables, set flag that new data is available
+    // pass new values into shared space, set flag that new data is available
     xSemaphoreTake(motorMutex, portMAX_DELAY);
-    newMotorInput = true;
+    newMotorInput = MOTOR_MOVE;
     newMotorXInput = newXValue.as<int>();
     newMotorYInput = newYValue.as<int>();
     xSemaphoreGive(motorMutex);
   } else if (strcmp(methodName, "reset") == 0) {
     LogInfo("Resetting motors");
+
+    // pass new values into shared space, set flag that new data is available
     xSemaphoreTake(motorMutex, portMAX_DELAY);
-    newMotorInput = true;
-    newMotorXInput = 9999;
-    newMotorYInput = 9999;
+    newMotorInput = MOTOR_RESET;
     xSemaphoreGive(motorMutex);
   } else {
     LogInfo("No method %s found", methodName);
@@ -155,6 +144,24 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   *response = (unsigned char *)strdup(responseMessage);
 
   return result;
+}
+
+/* //////////////// Device Utilities //////////////// */
+
+static bool InitWifi() {
+  Serial.print(F("Connecting to ")); Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  
+  // hang while not connected (bit of a hack)
+  // TODO make connection time out, return with hasWifi false 
+  do {
+    delay(500);
+    Serial.print(".");
+  } while (WiFi.status() != WL_CONNECTED);
+
+  Serial.println(F("WiFi connected"));
+  Serial.print(F("IP Address: ")); Serial.println(WiFi.localIP());
+  return true;
 }
 
 static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
@@ -213,13 +220,8 @@ static void MoveMotors(int xxx, int yyy) {
     flagsy = 1;
   }
 
-  // reset 
-  if(xxx == 9999 && yyy == 9999) {    // reset input 9999,9999
-    ResetMotors();
-    return;
-  }
-
-  while(ctrstepx <= xxx || ctrstepy <= yyy) {
+  while (ctrstepx <= xxx || ctrstepy <= yyy)
+  {
     if (ctrstepx <= xxx) {
       digitalWrite(MOTOR_X_STEP_PIN, HIGH);
       ctrstepx++;
@@ -247,8 +249,12 @@ static void MoveMotors(int xxx, int yyy) {
   ctrstepy = 0;
 }
 
-int max(int x, int y) { return (x > y) ? x : y;}
-int min(int x, int y) { return (x < y) ? x : y;}
+int max(int x, int y) { 
+  return (x > y) ? x : y;
+}
+int min(int x, int y) { 
+  return (x < y) ? x : y;
+}
 
 /* //////////////// Tasks //////////////// */
 
@@ -298,10 +304,11 @@ static void CommsTask(void* pvParameters) {
 
         send_interval_ms = millis();
       } 
+
+      Esp32MQTTClient_Check();
     }
 
     vTaskDelay(100);
-    Esp32MQTTClient_Check();
     //TODO check if wifi is still connected
   }
 }
@@ -317,26 +324,51 @@ static void MotorTask(void* pvParameters) {
   while (true) {
     // TODO implement thread sleep/wake instead of using flags to communicate new data
     // check for new data from communications thread
-    if (newMotorInput) {  
-      xSemaphoreTake(motorMutex, portMAX_DELAY);
-      newMotorInput = false;
-      x = newMotorXInput;
-      y = newMotorYInput;
-      xSemaphoreGive(motorMutex);
+    xSemaphoreTake(motorMutex, portMAX_DELAY);
+    switch (newMotorInput) {
+      case MOTOR_IDLE:
+      {
+        xSemaphoreGive(motorMutex);
+        vTaskDelay(100);
+        break;
+      }
+      case MOTOR_MOVE:
+      {
+        // copy data from shared resource into task-specific copy; reset input flag
+        newMotorInput = MOTOR_IDLE;
+        x = newMotorXInput;
+        y = newMotorYInput;
+        xSemaphoreGive(motorMutex);
+      
+        Serial.print(F("Moving (x,y): ("));
+        Serial.print(x);
+        Serial.print(",");
+        Serial.print(y);
+        Serial.println(")");
 
-      /* SERVO MOTOR CODE HERE */
-      Serial.print(F("Moving (x,y): ("));
-      Serial.print(x);
-      Serial.print(",");
-      Serial.print(y);
-      Serial.println(")");
+        MoveMotors(x,y);
 
-      MoveMotors(x,y);
+        Serial.println(F("Move finished"));
+        break;
+      }
+      case MOTOR_RESET:
+      {
+        // reset input flag
+        newMotorInput = MOTOR_IDLE;
+        xSemaphoreGive(motorMutex);
+        Serial.println("Resetting motors");
 
-      Serial.println(F("Move finished"));
+        ResetMotors();
+        
+        Serial.println("Reset finished");
+        break;
+      }
+      default: 
+      {
+        xSemaphoreGive(motorMutex);
+        break;
+      }
     }
-
-    vTaskDelay(100);
   }
 }
 
