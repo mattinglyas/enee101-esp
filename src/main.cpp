@@ -8,6 +8,7 @@
 #include "config.h"
 
 #define MESSAGE_MAX_LEN 256 // size of message buffer
+
 #define ONBOARD_LED_PIN 2
 
 #define ULTRASOUND_X_TRIG_PIN 5 
@@ -24,13 +25,7 @@
 #define CLK_PIN 4
 #define DAT_PIN 0
 
-<<<<<<< HEAD
-/* //////////////// Constants //////////////// */
-
-/* Communications */
-=======
 #define STEP_SPEED 100
->>>>>>> rtos
 
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char* ssid = CONFIG_WIFI_NAME;
@@ -48,42 +43,6 @@ static bool messageSending = true;
 static uint64_t send_interval_ms;
 static bool ledValue = false;
 
-<<<<<<< HEAD
-/* Hardware */
-
-// initial values
-static unsigned long xnum = 0;
-static unsigned long ynum = 0;
-static unsigned long t0;
-static unsigned long t0m;
-static unsigned long t1 = 0;
-static unsigned long t1m = 0;
-static bool xstat = LOW;
-static bool ystat = LOW;
-static bool reset = false;
-
-// misc vars for step motor
-static int ctrstep0 = 0;
-static int ctrstep1 = 0;
-static unsigned long ctrstepx = 0;
-static unsigned long ctrstepy = 0;
-static int flag0 = 0;      // flag for stepper motor taking turns per main loop
-static int flagsx = 0;     // flag for keeping track of input signs for x
-static int flagsy = 0;     // flag for keeping track of input signs for y
-static int xValue = 0;     // used as storage to pass inputted values in
-static int yValue = 0;
-
-// misc vars for encoder operation
-int enccntx = 0;
-int last;
-int cur;
-
-/* //////////////// Utilities //////////////// */
-
-/* Communications */ 
-
-static void InitWifi() {
-=======
 // DEMO: STORED X AND Y VALUES, USED TO SIMULATE MOTOR LOCATION
 static int yValue = 0;
 static int xValue = 0;
@@ -101,7 +60,6 @@ TaskHandle_t motorTask;
 /* //////////////// Utilities //////////////// */
 
 static bool InitWifi() {
->>>>>>> rtos
   Serial.print(F("Connecting to ")); Serial.println(ssid);
   WiFi.begin(ssid, password);
   
@@ -174,14 +132,6 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     JsonVariant newXValue = doc["x"];
     JsonVariant newYValue = doc["y"];
 
-<<<<<<< HEAD
-    /* DEMO: PUT STEPPER MOTOR CODE HERE */
-    xValue = newXValue.as<int>();
-    yValue = newYValue.as<int>();
-
-    if (xValue == 9999 && yValue == 9999) reset = true;
-
-=======
     // pass new values into shared variables, set flag that new data is available
     xSemaphoreTake(motorMutex, portMAX_DELAY);
     newMotorInput = true;
@@ -195,7 +145,6 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     newMotorXInput = 9999;
     newMotorYInput = 9999;
     xSemaphoreGive(motorMutex);
->>>>>>> rtos
   } else {
     LogInfo("No method %s found", methodName);
     responseMessage = "{\"status\":404}";
@@ -208,121 +157,6 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   return result;
 }
 
-<<<<<<< HEAD
-/* Hardware */
-
-void mcontrol() {
-  if (xValue > 0) {
-    // encod();
-    /*  flag0 is used to switch between stepping x and y motors once per loop because they use the same
-     *  timer (t0 - t1 > 100, i.e. ~100 microseconds) to step.
-     *  the or case is used for both axes of opposing axes in case one was moved more than the other
-     */
-    if((t0 - t1 > 100 && flag0 == 0) || (t0 - t1 > 100 && yValue == 0)) {
-      if(xstat == LOW)    // stepper motor function i.e. swap b/w HIGH & LOW on the xstep pin with a ~200us period
-        xstat = HIGH;
-      else
-        xstat = LOW;
-      digitalWrite(MOTOR_X_STEP_PIN, xstat);
-      t1 = t0;            // t0 updates every main loop, this only updates once ~100 us *if condition is met above
-      flag0 = 1;          // flag0 swaps back and forth between x and y motors
-      ctrstepx++;         // ctrstepx keeps track of stepper motor steps on x axis
-    }
-    // one step equates to a incredibly small rotation so axis[] (inputted number) is upscaled by 50
-    if(ctrstepx > xValue) {   // the motor stops stepping once this condition is met.
-    //if (enccntx >= xValue) {     // alternative control scheme with encoder..
-      if(flagsx == 1)               // flags[ign]x is determined in the function input(), it is to keep track of the sign
-        xnum = xnum - ctrstepx;     // of the input.
-      if(flagsx == 0)
-        xnum = xnum + ctrstepx;
-        
-      ctrstepx = 0;                 // step counter resets after motor is done moving
-      xValue = 0;                  // input axis # resets after motor is done moving
-      // enccntx = 0;
-      // Serial.println(xnum);
-    }
-  }
-  if (yValue > 0) {
-    // encody();
-    /*  flag0 is used to switch between stepping x and y motors once per loop because they use the same
-     *  timer (t0 - t1 > 100, i.e. ~100 microseconds) to step.
-     *  the or case is used for both axes of opposing axes in case one was moved more than the other
-     */
-    if((t0 - t1 > 100 && flag0 == 1) || (t0 - t1 > 100 && xValue == 0)) {
-      if (ystat == LOW)
-        ystat = HIGH;
-      else
-        ystat = LOW;
-      digitalWrite(MOTOR_Y_STEP_PIN, ystat);
-      t1 = t0;            // t0 updates every main loop, this only updates once ~100 us *if condition is met above
-      flag0 = 0;          // flag0 swaps back and forth between x and y motors
-      ctrstepy++;         // ctrstepx keeps track of stepper motor steps on x axis
-    }
-                                    // one step equates to a incredibly small rotation so axis[] (inputted number) is upscaled by 50
-    if(ctrstepy > yValue) {   // the motor stops stepping once this condition is met.
-    //if (enccntx >= xValue) {     // alternative control scheme with encoder..
-      if(flagsy == 1)               // flags[ign]y is determined in the function input(), it is to keep track of the sign
-        ynum = ynum - ctrstepy;     // of the input.
-      if(flagsy == 0)
-        ynum = ynum + ctrstepy;
-      ctrstepy = 0;                 // step counter resets after motor is done moving
-      yValue = 0;                  // input axis # resets after motor is done moving
-      // enccnty = 0;
-      // Serial.println(ynum);
-    }
-  }
-}
-
-void resetpos() {
-  if(reset == true) {
-    if (xnum > 0) {
-      if((t0 - t1 > 100 && flag0 == 0) || (t0 - t1 > 100 && ynum == 0)) {
-        if(xstat == LOW)
-          xstat = HIGH;
-        else
-          xstat = LOW;
-        digitalWrite(MOTOR_X_STEP_PIN, xstat);
-        t1 = t0;
-        flag0 = 1;
-        xnum--;
-      }
-      // Serial.println(xnum);
-    }
-    if (ynum > 0) {     //if a received
-      if((t0 - t1 > 100 && flag0 == 1) || (t0 - t1 > 100 && xnum == 0)) {
-        if(ystat == LOW)
-          ystat = HIGH;
-        else
-          ystat = LOW;
-        digitalWrite(MOTOR_Y_STEP_PIN, ystat);
-        t1 = t0;
-        flag0 = 0;
-        ynum--;
-      }
-      // Serial.println(ynum);
-    }
-    if(ynum == 0 && xnum == 0) {
-      reset = false;
-    }
-  }
-}
-
-long GetUltrasoundDelayUs(int trigPort, int echoPort) {
-  // pinModes are necessary for some reason. Code does not work without them
-
-  long duration;
-  pinMode(trigPort, OUTPUT);
-  digitalWrite(trigPort, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPort, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPort, LOW);
-  pinMode(echoPort, INPUT);
-  return pulseIn(echoPort, HIGH);
-}
-
-double DelayToInches(long duration) {
-=======
 static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
   // pinModes are necessary for some reason. Code does not work without them
 
@@ -335,7 +169,6 @@ static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   pinMode(echoPin, INPUT);
   duration = pulseIn(echoPin, HIGH);
->>>>>>> rtos
   return ((double) duration) / 74 / 2;  
 }
 
@@ -365,28 +198,6 @@ static void MoveMotors(int xxx, int yyy) {
   int flagsx = 0;                    // assigning sign to x value input. 0 means positive 1 means negative
   int flagsy = 0;                    // assigning sign to y value input. 0 means positive 1 means negative
 
-<<<<<<< HEAD
-  pinMode(ULTRASOUND_X_ECHO_PIN, INPUT);
-  pinMode(ULTRASOUND_X_TRIG_PIN, OUTPUT);
-  pinMode(ULTRASOUND_Y_ECHO_PIN, INPUT);
-  pinMode(ULTRASOUND_Y_TRIG_PIN, OUTPUT);
-  pinMode(MOTOR_X_DIR_PIN, OUTPUT);
-  pinMode(MOTOR_X_STEP_PIN, OUTPUT);
-  pinMode(MOTOR_Y_DIR_PIN, OUTPUT);
-  pinMode(MOTOR_Y_STEP_PIN, OUTPUT);
-  pinMode(ONBOARD_LED_PIN, OUTPUT);
-  pinMode(CLK_PIN, INPUT);
-  pinMode(DAT_PIN, INPUT);
-  
-  digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
-  digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
-  digitalWrite(MOTOR_X_DIR_PIN, LOW);
-  digitalWrite(MOTOR_X_STEP_PIN, LOW);
-  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
-  digitalWrite(MOTOR_Y_STEP_PIN, LOW);
-
-  digitalWrite(ONBOARD_LED_PIN, ledValue);
-=======
   if(xxx > 0)                
     digitalWrite(MOTOR_X_DIR_PIN, HIGH);     // setting x motor direction according to input
   if(xxx < 0) {
@@ -444,7 +255,6 @@ int min(int x, int y) { return (x < y) ? x : y;}
 static void CommsTask(void* pvParameters) {
   Serial.print("Starting messaging task on core ");
   Serial.println(xPortGetCoreID());
->>>>>>> rtos
 
   // initialize wifi module
   Serial.println(F("> WiFi"));
@@ -467,17 +277,12 @@ static void CommsTask(void* pvParameters) {
       if (messageSending && (int)(millis() - send_interval_ms) >= interval) {
         char messagePayload[MESSAGE_MAX_LEN];
 
-<<<<<<< HEAD
-      double xDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN));
-      double yDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN));
-=======
         /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
         // increase priority for strict timing requirements with ultrasound sensor
         vTaskPrioritySet(commsTask, 2);
         double xDistance = GetUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
         double yDistance = GetUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
         vTaskPrioritySet(commsTask, 1);
->>>>>>> rtos
 
         // copy into message
         snprintf(messagePayload, MESSAGE_MAX_LEN, messageData, messageCount++, xDistance, yDistance);
@@ -531,10 +336,6 @@ static void MotorTask(void* pvParameters) {
       Serial.println(F("Move finished"));
     }
 
-<<<<<<< HEAD
-  mcontrol(); // motor control
-  resetpos(); // reset position if reset flag is true
-=======
     vTaskDelay(100);
   }
 }
@@ -591,5 +392,4 @@ void setup() {
 }
 
 void loop() {
->>>>>>> rtos
 }
