@@ -138,7 +138,13 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     newMotorXInput = newXValue.as<int>();
     newMotorYInput = newYValue.as<int>();
     xSemaphoreGive(motorMutex);
-
+  } else if (strcmp(methodName, "reset") == 0) {
+    LogInfo("Resetting motors");
+    xSemaphoreTake(motorMutex, portMAX_DELAY);
+    newMotorInput = true;
+    newMotorXInput = 9999;
+    newMotorYInput = 9999;
+    xSemaphoreGive(motorMutex);
   } else {
     LogInfo("No method %s found", methodName);
     responseMessage = "{\"status\":404}";
@@ -166,7 +172,26 @@ static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
   return ((double) duration) / 74 / 2;  
 }
 
-void MoveMotors(int xxx, int yyy) {
+static void ResetMotors() {
+    digitalWrite(MOTOR_X_DIR_PIN, LOW);
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
+    while(xValue > 0 || yValue > 0) {
+      if (xValue > 0) {
+        digitalWrite(MOTOR_X_STEP_PIN, HIGH);
+        xValue--;
+      }
+      if (yValue > 0) {
+        digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
+        yValue--;
+      }
+      delayMicroseconds(STEP_SPEED);
+      digitalWrite(MOTOR_X_STEP_PIN, LOW);
+      digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+      delayMicroseconds(STEP_SPEED);
+    }
+}
+
+static void MoveMotors(int xxx, int yyy) {
   unsigned long ctrstepx = 0;
   unsigned long ctrstepy = 0;
 
@@ -190,23 +215,7 @@ void MoveMotors(int xxx, int yyy) {
 
   // reset 
   if(xxx == 9999 && yyy == 9999) {    // reset input 9999,9999
-    digitalWrite(MOTOR_X_DIR_PIN, LOW);
-    digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
-    while(xValue > 0 || yValue > 0) {
-      if (xValue > 0) {
-        digitalWrite(MOTOR_X_STEP_PIN, HIGH);
-        xValue--;
-      }
-      if (yValue > 0) {
-        digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
-        yValue--;
-      }
-      delayMicroseconds(STEP_SPEED);
-      digitalWrite(MOTOR_X_STEP_PIN, LOW);
-      digitalWrite(MOTOR_Y_STEP_PIN, LOW);
-      delayMicroseconds(STEP_SPEED);
-    }
-
+    ResetMotors();
     return;
   }
 
@@ -306,6 +315,7 @@ static void MotorTask(void* pvParameters) {
   int y;
 
   while (true) {
+    // TODO implement thread sleep/wake instead of using flags to communicate new data
     // check for new data from communications thread
     if (newMotorInput) {  
       xSemaphoreTake(motorMutex, portMAX_DELAY);
