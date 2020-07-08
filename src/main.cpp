@@ -2,6 +2,7 @@
 #include <Wifi.h>
 #include <ArduinoJson.h>
 #include <Math.h>
+#include <FreeRTOS.h>
 #include "AzureIotHub.h"
 #include "Esp32MQTTClient.h"
 #include "config.h"
@@ -23,9 +24,13 @@
 #define CLK_PIN 4
 #define DAT_PIN 0
 
+<<<<<<< HEAD
 /* //////////////// Constants //////////////// */
 
 /* Communications */
+=======
+#define STEP_SPEED 100
+>>>>>>> rtos
 
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char* ssid = CONFIG_WIFI_NAME;
@@ -39,11 +44,11 @@ const char* messageData = "{\"messageId\":%d, \"x_distance\":%lf, \"y_distance\"
 
 int messageCount = 1; 
 static long interval = 2000; //ms between telemetry messages
-static bool hasWifi = false;
 static bool messageSending = true;
 static uint64_t send_interval_ms;
 static bool ledValue = false;
 
+<<<<<<< HEAD
 /* Hardware */
 
 // initial values
@@ -78,6 +83,25 @@ int cur;
 /* Communications */ 
 
 static void InitWifi() {
+=======
+// DEMO: STORED X AND Y VALUES, USED TO SIMULATE MOTOR LOCATION
+static int yValue = 0;
+static int xValue = 0;
+
+// Hardware flags for passing info to comms
+static bool newMotorInput = false;
+static int newMotorXInput = 0;
+static int newMotorYInput = 0;
+SemaphoreHandle_t motorMutex;
+
+// task handlers 
+TaskHandle_t commsTask;
+TaskHandle_t motorTask;
+
+/* //////////////// Utilities //////////////// */
+
+static bool InitWifi() {
+>>>>>>> rtos
   Serial.print(F("Connecting to ")); Serial.println(ssid);
   WiFi.begin(ssid, password);
   
@@ -88,9 +112,9 @@ static void InitWifi() {
     Serial.print(".");
   } while (WiFi.status() != WL_CONNECTED);
 
-  hasWifi = true;
   Serial.println(F("WiFi connected"));
   Serial.print(F("IP Address: ")); Serial.println(WiFi.localIP());
+  return true;
 }
 
 static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result) {
@@ -150,12 +174,28 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
     JsonVariant newXValue = doc["x"];
     JsonVariant newYValue = doc["y"];
 
+<<<<<<< HEAD
     /* DEMO: PUT STEPPER MOTOR CODE HERE */
     xValue = newXValue.as<int>();
     yValue = newYValue.as<int>();
 
     if (xValue == 9999 && yValue == 9999) reset = true;
 
+=======
+    // pass new values into shared variables, set flag that new data is available
+    xSemaphoreTake(motorMutex, portMAX_DELAY);
+    newMotorInput = true;
+    newMotorXInput = newXValue.as<int>();
+    newMotorYInput = newYValue.as<int>();
+    xSemaphoreGive(motorMutex);
+  } else if (strcmp(methodName, "reset") == 0) {
+    LogInfo("Resetting motors");
+    xSemaphoreTake(motorMutex, portMAX_DELAY);
+    newMotorInput = true;
+    newMotorXInput = 9999;
+    newMotorYInput = 9999;
+    xSemaphoreGive(motorMutex);
+>>>>>>> rtos
   } else {
     LogInfo("No method %s found", methodName);
     responseMessage = "{\"status\":404}";
@@ -168,6 +208,7 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   return result;
 }
 
+<<<<<<< HEAD
 /* Hardware */
 
 void mcontrol() {
@@ -281,19 +322,226 @@ long GetUltrasoundDelayUs(int trigPort, int echoPort) {
 }
 
 double DelayToInches(long duration) {
+=======
+static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
+  // pinModes are necessary for some reason. Code does not work without them
+
+  long duration;
+  pinMode(trigPin, OUTPUT);
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  pinMode(echoPin, INPUT);
+  duration = pulseIn(echoPin, HIGH);
+>>>>>>> rtos
   return ((double) duration) / 74 / 2;  
+}
+
+static void ResetMotors() {
+    digitalWrite(MOTOR_X_DIR_PIN, LOW);
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
+    while(xValue > 0 || yValue > 0) {
+      if (xValue > 0) {
+        digitalWrite(MOTOR_X_STEP_PIN, HIGH);
+        xValue--;
+      }
+      if (yValue > 0) {
+        digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
+        yValue--;
+      }
+      delayMicroseconds(STEP_SPEED);
+      digitalWrite(MOTOR_X_STEP_PIN, LOW);
+      digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+      delayMicroseconds(STEP_SPEED);
+    }
+}
+
+static void MoveMotors(int xxx, int yyy) {
+  unsigned long ctrstepx = 0;
+  unsigned long ctrstepy = 0;
+
+  int flagsx = 0;                    // assigning sign to x value input. 0 means positive 1 means negative
+  int flagsy = 0;                    // assigning sign to y value input. 0 means positive 1 means negative
+
+<<<<<<< HEAD
+  pinMode(ULTRASOUND_X_ECHO_PIN, INPUT);
+  pinMode(ULTRASOUND_X_TRIG_PIN, OUTPUT);
+  pinMode(ULTRASOUND_Y_ECHO_PIN, INPUT);
+  pinMode(ULTRASOUND_Y_TRIG_PIN, OUTPUT);
+  pinMode(MOTOR_X_DIR_PIN, OUTPUT);
+  pinMode(MOTOR_X_STEP_PIN, OUTPUT);
+  pinMode(MOTOR_Y_DIR_PIN, OUTPUT);
+  pinMode(MOTOR_Y_STEP_PIN, OUTPUT);
+  pinMode(ONBOARD_LED_PIN, OUTPUT);
+  pinMode(CLK_PIN, INPUT);
+  pinMode(DAT_PIN, INPUT);
+  
+  digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
+  digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
+  digitalWrite(MOTOR_X_DIR_PIN, LOW);
+  digitalWrite(MOTOR_X_STEP_PIN, LOW);
+  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
+  digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+
+  digitalWrite(ONBOARD_LED_PIN, ledValue);
+=======
+  if(xxx > 0)                
+    digitalWrite(MOTOR_X_DIR_PIN, HIGH);     // setting x motor direction according to input
+  if(xxx < 0) {
+    digitalWrite(MOTOR_X_DIR_PIN, LOW);      // setting x motor direction according to input
+    xxx = abs(xxx);
+    flagsx = 1;
+  }
+  if(yyy > 0)
+    digitalWrite(MOTOR_Y_DIR_PIN, LOW);      // setting y motor direction according to input
+  if(yyy < 0) {
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH);     // setting y motor direction according to input
+    yyy = abs(yyy);
+    flagsy = 1;
+  }
+
+  // reset 
+  if(xxx == 9999 && yyy == 9999) {    // reset input 9999,9999
+    ResetMotors();
+    return;
+  }
+
+  while(ctrstepx <= xxx || ctrstepy <= yyy) {
+    if (ctrstepx <= xxx) {
+      digitalWrite(MOTOR_X_STEP_PIN, HIGH);
+      ctrstepx++;
+    }
+    if (ctrstepy <= yyy) {
+      digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
+      ctrstepy++;
+    }
+    delayMicroseconds(STEP_SPEED);
+    digitalWrite(MOTOR_X_STEP_PIN, LOW);
+    digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+    delayMicroseconds(STEP_SPEED);
+  }
+
+  if(flagsx == 1)               // flags[ign]x is determined in the function input(), it is to keep track of the sign
+    xValue = xValue - ctrstepx;     // of the input.
+  if(flagsx == 0)
+    xValue = xValue + ctrstepx;
+    ctrstepx = 0;
+    
+  if(flagsy == 1)               // flags[ign]y is determined in the function input(), it is to keep track of the sign
+    yValue = yValue - ctrstepy;     // of the input.
+  if(flagsy == 0)
+    yValue = yValue + ctrstepy;
+  ctrstepy = 0;
 }
 
 int max(int x, int y) { return (x > y) ? x : y;}
 int min(int x, int y) { return (x < y) ? x : y;}
 
+/* //////////////// Tasks //////////////// */
+
+static void CommsTask(void* pvParameters) {
+  Serial.print("Starting messaging task on core ");
+  Serial.println(xPortGetCoreID());
+>>>>>>> rtos
+
+  // initialize wifi module
+  Serial.println(F("> WiFi"));
+  bool hasWifi = InitWifi();
+  if (!hasWifi) return;
+
+  Serial.println(F(" > IoT Hub"));
+  Esp32MQTTClient_SetOption(OPTION_MINI_SOLUTION_NAME, "GetStarted");
+  Esp32MQTTClient_Init((const uint8_t*)connectionString, true);
+
+  Esp32MQTTClient_SetSendConfirmationCallback(SendConfirmationCallback);
+  Esp32MQTTClient_SetMessageCallback(MessageCallback);
+  Esp32MQTTClient_SetDeviceTwinCallback(DeviceTwinCallback);
+  Esp32MQTTClient_SetDeviceMethodCallback(DeviceMethodCallback);
+
+  send_interval_ms = millis();
+
+  while (true) {
+    if (hasWifi) {
+      if (messageSending && (int)(millis() - send_interval_ms) >= interval) {
+        char messagePayload[MESSAGE_MAX_LEN];
+
+<<<<<<< HEAD
+      double xDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN));
+      double yDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN));
+=======
+        /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
+        // increase priority for strict timing requirements with ultrasound sensor
+        vTaskPrioritySet(commsTask, 2);
+        double xDistance = GetUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
+        double yDistance = GetUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
+        vTaskPrioritySet(commsTask, 1);
+>>>>>>> rtos
+
+        // copy into message
+        snprintf(messagePayload, MESSAGE_MAX_LEN, messageData, messageCount++, xDistance, yDistance);
+      
+        Serial.println(F("Sending message: "));
+        Serial.println(messagePayload);
+
+        EVENT_INSTANCE* message = Esp32MQTTClient_Event_Generate(messagePayload, MESSAGE);
+        Esp32MQTTClient_SendEventInstance(message);
+
+        Serial.println(F("------------------"));
+        Serial.println();
+
+        send_interval_ms = millis();
+      } 
+    }
+
+    vTaskDelay(100);
+    Esp32MQTTClient_Check();
+    //TODO check if wifi is still connected
+  }
+}
+
+static void MotorTask(void* pvParameters) {
+  Serial.print("Starting motor task on core ");
+  Serial.println(xPortGetCoreID());
+
+  // task-specific copy of new x and y values
+  int x;
+  int y;
+
+  while (true) {
+    // TODO implement thread sleep/wake instead of using flags to communicate new data
+    // check for new data from communications thread
+    if (newMotorInput) {  
+      xSemaphoreTake(motorMutex, portMAX_DELAY);
+      newMotorInput = false;
+      x = newMotorXInput;
+      y = newMotorYInput;
+      xSemaphoreGive(motorMutex);
+
+      /* SERVO MOTOR CODE HERE */
+      Serial.print(F("Moving (x,y): ("));
+      Serial.print(x);
+      Serial.print(",");
+      Serial.print(y);
+      Serial.println(")");
+
+      MoveMotors(x,y);
+
+      Serial.println(F("Move finished"));
+    }
+
+<<<<<<< HEAD
+  mcontrol(); // motor control
+  resetpos(); // reset position if reset flag is true
+=======
+    vTaskDelay(100);
+  }
+}
+
 /* //////////////// Arduino Sketch //////////////// */
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println(F("ESP32 Device"));
-  Serial.println(F("Initializing..."));
-
   pinMode(ULTRASOUND_X_ECHO_PIN, INPUT);
   pinMode(ULTRASOUND_X_TRIG_PIN, OUTPUT);
   pinMode(ULTRASOUND_Y_ECHO_PIN, INPUT);
@@ -315,52 +563,33 @@ void setup() {
 
   digitalWrite(ONBOARD_LED_PIN, ledValue);
 
-  // initialize wifi module
-  Serial.println(F("> WiFi"));
-  hasWifi = false;
-  InitWifi();
-  if (!hasWifi) return;
+  Serial.begin(115200);
+  Serial.println(F("ESP32 Device"));
+  Serial.println(F("Initializing..."));
 
-  randomSeed(analogRead(0));
+  motorMutex = xSemaphoreCreateMutex();
 
-  Serial.println(F(" > IoT Hub"));
-  Esp32MQTTClient_SetOption(OPTION_MINI_SOLUTION_NAME, "GetStarted");
-  Esp32MQTTClient_Init((const uint8_t*)connectionString, true);
+  xTaskCreatePinnedToCore(
+    CommsTask,
+    "Comms Task",
+    65536,
+    NULL,
+    1,
+    &commsTask,
+    0
+  );
 
-  Esp32MQTTClient_SetSendConfirmationCallback(SendConfirmationCallback);
-  Esp32MQTTClient_SetMessageCallback(MessageCallback);
-  Esp32MQTTClient_SetDeviceTwinCallback(DeviceTwinCallback);
-  Esp32MQTTClient_SetDeviceMethodCallback(DeviceMethodCallback);
-
-  send_interval_ms = millis();
+  xTaskCreatePinnedToCore(
+    MotorTask,
+    "Motor Task",
+    16384,
+    NULL,
+    1,
+    &motorTask,
+    1
+  );
 }
 
 void loop() {
-  if (hasWifi) {
-    if (messageSending && (int)(millis() - send_interval_ms) >= interval) {
-      char messagePayload[MESSAGE_MAX_LEN];
-
-      double xDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN));
-      double yDistance = DelayToInches(GetUltrasoundDelayUs(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN));
-
-      // copy into message
-      snprintf(messagePayload, MESSAGE_MAX_LEN, messageData, messageCount++, xDistance, yDistance);
-      
-      Serial.println(F("Sending message: "));
-      Serial.println(messagePayload);
-
-      EVENT_INSTANCE* message = Esp32MQTTClient_Event_Generate(messagePayload, MESSAGE);
-      Esp32MQTTClient_SendEventInstance(message);
-
-      Serial.println(F("------------------"));
-      Serial.println();
-
-      send_interval_ms = millis();
-    } else {
-      Esp32MQTTClient_Check();
-    }
-  }
-
-  mcontrol(); // motor control
-  resetpos(); // reset position if reset flag is true
+>>>>>>> rtos
 }
