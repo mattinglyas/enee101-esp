@@ -166,7 +166,7 @@ static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
   return ((double) duration) / 74 / 2;  
 }
 
-void moveMotors(int xxx, int yyy) {
+void MoveMotors(int xxx, int yyy) {
   unsigned long ctrstepx = 0;
   unsigned long ctrstepy = 0;
 
@@ -321,7 +321,7 @@ static void MotorTask(void* pvParameters) {
       Serial.print(y);
       Serial.println(")");
 
-      moveMotors(x,y);
+      MoveMotors(x,y);
 
       Serial.println(F("Move finished"));
     }
