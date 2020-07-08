@@ -25,6 +25,8 @@
 #define CLK_PIN 4
 #define DAT_PIN 0
 
+#define STEP_SPEED 100
+
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char* ssid = CONFIG_WIFI_NAME;
 const char* password = CONFIG_WIFI_PASSWORD;
@@ -42,8 +44,8 @@ static uint64_t send_interval_ms;
 static bool ledValue = false;
 
 // DEMO: STORED X AND Y VALUES, USED TO SIMULATE MOTOR LOCATION
-static int yValue = 12;
-static int xValue = 9;
+static int yValue = 0;
+static int xValue = 0;
 
 // Hardware flags for passing info to comms
 static bool newMotorInput = false;
@@ -149,25 +151,91 @@ static int DeviceMethodCallback(const char* methodName, const unsigned char* pay
   return result;
 }
 
-static double GetUltrasoundDistanceInInches() {
+static double GetUltrasoundDistanceInInches(int trigPin, int echoPin) {
   // pinModes are necessary for some reason. Code does not work without them
 
   long duration;
-  pinMode(ULTRASOUND_X_TRIG_PIN, OUTPUT);
-  digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
+  pinMode(trigPin, OUTPUT);
+  digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
-  digitalWrite(ULTRASOUND_X_TRIG_PIN, HIGH);
+  digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
-  digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
-  pinMode(ULTRASOUND_X_ECHO_PIN, INPUT);
-  duration = pulseIn(ULTRASOUND_X_ECHO_PIN, HIGH);
+  digitalWrite(trigPin, LOW);
+  pinMode(echoPin, INPUT);
+  duration = pulseIn(echoPin, HIGH);
   return ((double) duration) / 74 / 2;  
 }
 
-static void moveMotors(int x, int y) {
-  /* DEMO: STORE VALUES IN XVALUE AND YVALUE TO SIMULATE MOVING MOTORS */
-  xValue = x;
-  yValue = y;
+void moveMotors(int xxx, int yyy) {
+  unsigned long ctrstepx = 0;
+  unsigned long ctrstepy = 0;
+
+  int flagsx = 0;                    // assigning sign to x value input. 0 means positive 1 means negative
+  int flagsy = 0;                    // assigning sign to y value input. 0 means positive 1 means negative
+
+  if(xxx > 0)                
+    digitalWrite(MOTOR_X_DIR_PIN, HIGH);     // setting x motor direction according to input
+  if(xxx < 0) {
+    digitalWrite(MOTOR_X_DIR_PIN, LOW);      // setting x motor direction according to input
+    xxx = abs(xxx);
+    flagsx = 1;
+  }
+  if(yyy > 0)
+    digitalWrite(MOTOR_Y_DIR_PIN, LOW);      // setting y motor direction according to input
+  if(yyy < 0) {
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH);     // setting y motor direction according to input
+    yyy = abs(yyy);
+    flagsy = 1;
+  }
+
+  // reset 
+  if(xxx == 9999 && yyy == 9999) {    // reset input 9999,9999
+    digitalWrite(MOTOR_X_DIR_PIN, LOW);
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
+    while(xValue > 0 || yValue > 0) {
+      if (xValue > 0) {
+        digitalWrite(MOTOR_X_STEP_PIN, HIGH);
+        xValue--;
+      }
+      if (yValue > 0) {
+        digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
+        yValue--;
+      }
+      delayMicroseconds(STEP_SPEED);
+      digitalWrite(MOTOR_X_STEP_PIN, LOW);
+      digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+      delayMicroseconds(STEP_SPEED);
+    }
+
+    return;
+  }
+
+  while(ctrstepx <= xxx || ctrstepy <= yyy) {
+    if (ctrstepx <= xxx) {
+      digitalWrite(MOTOR_X_STEP_PIN, HIGH);
+      ctrstepx++;
+    }
+    if (ctrstepy <= yyy) {
+      digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
+      ctrstepy++;
+    }
+    delayMicroseconds(STEP_SPEED);
+    digitalWrite(MOTOR_X_STEP_PIN, LOW);
+    digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+    delayMicroseconds(STEP_SPEED);
+  }
+
+  if(flagsx == 1)               // flags[ign]x is determined in the function input(), it is to keep track of the sign
+    xValue = xValue - ctrstepx;     // of the input.
+  if(flagsx == 0)
+    xValue = xValue + ctrstepx;
+    ctrstepx = 0;
+    
+  if(flagsy == 1)               // flags[ign]y is determined in the function input(), it is to keep track of the sign
+    yValue = yValue - ctrstepy;     // of the input.
+  if(flagsy == 0)
+    yValue = yValue + ctrstepy;
+  ctrstepy = 0;
 }
 
 int max(int x, int y) { return (x > y) ? x : y;}
@@ -203,8 +271,8 @@ static void CommsTask(void* pvParameters) {
         /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
         // increase priority for strict timing requirements with ultrasound sensor
         vTaskPrioritySet(commsTask, 2);
-        double xDistance = GetUltrasoundDistanceInInches();
-        double yDistance = (double) yValue;
+        double xDistance = GetUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
+        double yDistance = GetUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
         vTaskPrioritySet(commsTask, 1);
 
         // copy into message
@@ -247,7 +315,15 @@ static void MotorTask(void* pvParameters) {
       xSemaphoreGive(motorMutex);
 
       /* SERVO MOTOR CODE HERE */
+      Serial.print(F("Moving (x,y): ("));
+      Serial.print(x);
+      Serial.print(",");
+      Serial.print(y);
+      Serial.println(")");
+
       moveMotors(x,y);
+
+      Serial.println(F("Move finished"));
     }
 
     vTaskDelay(100);
@@ -297,7 +373,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     MotorTask,
     "Motor Task",
-    4096,
+    16384,
     NULL,
     1,
     &motorTask,
