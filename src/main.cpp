@@ -394,7 +394,7 @@ static void MotorTask(void *pvParameters)
         }
         case MOTOR_MOVE:
         {
-          Serial.print(F("Info: Moving motors to x,y = "));
+          Serial.print(F("Info: Moving motors by x,y = "));
           Serial.print(command.x);
           Serial.print(F(","));
           Serial.println(command.y);
