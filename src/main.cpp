@@ -8,8 +8,8 @@
 #include "Esp32MQTTClient.h"
 #include "config.h"
 
-#define MESSAGE_MAX_LEN 512 // size of message buffer
-#define COMMAND_BUFFER_LEN 255  // local command queue max length
+#define MESSAGE_MAX_LEN 2048 // size of message buffers
+#define COMMAND_BUFFER_LEN 256  // local command queue max length
 
 #define ONBOARD_LED_PIN 2
 
@@ -157,7 +157,7 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
       newCommand.y = newYValue.as<int>();
       motorCommandQueue.add(newCommand);
 
-      Serial.print(F("Info: Queued move command to coordinates (x,y) = "));
+      Serial.print(F("Info: Queued move command with input (x,y) = "));
       Serial.print(newCommand.x);
       Serial.print(F(","));
       Serial.print(newCommand.y);
@@ -170,6 +170,47 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
       result = 400;
     }
     xSemaphoreGive(motorCommandMutex);
+  }
+  else if (strcmp(methodName, "moveArray") == 0)
+  {
+    int arraySizeX = doc["x"].size();
+    int arraySizeY = doc["y"].size();
+
+    if (arraySizeX == arraySizeY) 
+    { 
+      xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
+      for (int i = 0; i < arraySizeX; i++) 
+      {
+        if (motorCommandQueue.size() < COMMAND_BUFFER_LEN)
+        {
+          // pass new values into shared space
+          struct MotorCommand newCommand;
+          newCommand.commandType = MOTOR_MOVE;
+          newCommand.x = doc["x"][i];
+          newCommand.y = doc["y"][i];
+          motorCommandQueue.add(newCommand);
+
+          Serial.print(F("Info: Queued array move command with input (x,y) = "));
+          Serial.print(newCommand.x);
+          Serial.print(F(","));
+          Serial.print(newCommand.y);
+          Serial.print(F(" at position "));
+          Serial.println(motorCommandQueue.size());
+        }
+        else
+        {
+          Serial.println(F("Warning: Queue full; remainder of array move command discarded"));
+          result = 400;
+          break;
+        }
+      }
+      xSemaphoreGive(motorCommandMutex);
+    }
+    else
+    {
+      Serial.println(F("Warning: Received improperly formatted moveArray command; discarding"));
+      result = 400;
+    }
   }
   else if (strcmp(methodName, "reset") == 0)
   {
