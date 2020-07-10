@@ -41,11 +41,13 @@ None
 
 #### Example Message
 
+```
 {
     "methodName": "start",
     "responseTimeoutInSeconds": 200,
     "payload" : {}
 }
+```
 
 ### Stop
 
@@ -57,11 +59,13 @@ None
 
 #### Example Message
 
+```
 {
     "methodName": "start",
     "responseTimeoutInSeconds": 200,
     "payload" : {}
 }
+```
 
 ### LED
 
@@ -73,11 +77,13 @@ None
 
 #### Example Message
 
+```
 {
     "methodName": "led",
     "responseTimeoutInSeconds": 200,
     "payload" : {}
 }
+```
 
 ### Interval
 
@@ -89,11 +95,13 @@ Positive integer value associated with "interval" to be used as new delay
 
 #### Example Message
 
+```
 {
     "methodName": "interval",
     "responseTimeoutInSeconds": 200,
     "payload" : {"interval":"2000"}
 }
+```
 
 ### Move
 
@@ -105,6 +113,7 @@ Signed integer value associated with "x" and "y" to be used as the amount of ste
 
 #### Example Message
 
+```
 {
     "methodName": "move",
     "responseTimeoutInSeconds": 200,
@@ -113,6 +122,7 @@ Signed integer value associated with "x" and "y" to be used as the amount of ste
         "y": -6000
     }
 }
+```
 
 ### moveArray
 
@@ -124,6 +134,7 @@ Array of signed integer values in sequential order associated with "x" and "y" t
 
 #### Example Message
 
+```
 {
     "methodName": "move",
     "responseTimeoutInSeconds": 200,
@@ -132,6 +143,7 @@ Array of signed integer values in sequential order associated with "x" and "y" t
         "y": [-500, 0, 5000, -950, 10000]
     }
 }
+```
 
 ### Reset
 
@@ -143,8 +155,10 @@ None
 
 #### Example Message
 
+```
 {
     "methodName": "reset",
     "responseTimeoutInSeconds": 200,
     "payload" : {}
 }
+```
