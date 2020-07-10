@@ -100,7 +100,7 @@ Positive integer value associated with "interval" to be used as new delay
 {
     "methodName": "interval",
     "responseTimeoutInSeconds": 200,
-    "payload" : {"interval":"2000"}
+    "payload" : {"interval": 2000}
 }
 ```
 
