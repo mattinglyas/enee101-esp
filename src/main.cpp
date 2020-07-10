@@ -9,7 +9,7 @@
 #include "config.h"
 
 #define MESSAGE_MAX_LEN 512 // size of message buffer
-#define COMMAND_BUFFER 256  // local storage queue max length
+#define COMMAND_BUFFER_LEN 255  // local command queue max length
 
 #define ONBOARD_LED_PIN 2
 
@@ -52,6 +52,7 @@ static const char *connectionString = CONFIG_CONNECTION_STRING;
 
 // telemetry message
 const char *messageData = "{\"messageId\":%d, \"x_distance\":%lf, \"y_distance\":%lf}";
+const char *responseMessageData = "{\"status\": %d}";
 
 int messageCount = 1;
 static long interval = 2000; //ms between telemetry messages
@@ -84,7 +85,7 @@ static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
 
 static void MessageCallback(const char *payload, int size)
 {
-  Serial.println(F("Info: Message callback:"));
+  Serial.print(F("Info: Message callback:"));
   Serial.println(payload);
 }
 
@@ -106,7 +107,9 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
 {
   Serial.print("Info: Trying to invoke method ");
   Serial.println(methodName);
-  const char *responseMessage = "{\"status\":200}";
+
+  char responseMessage[MESSAGE_MAX_LEN];
+
   int result = 200;
 
   StaticJsonDocument<MESSAGE_MAX_LEN> doc;
@@ -144,38 +147,56 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
     JsonVariant newXValue = doc["x"];
     JsonVariant newYValue = doc["y"];
 
-    // pass new values into shared space
     xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
-    struct MotorCommand newCommand;
-    newCommand.commandType = MOTOR_MOVE;
-    newCommand.x = newXValue.as<int>();
-    newCommand.y = newYValue.as<int>();
-    motorCommandQueue.add(newCommand);
-    xSemaphoreGive(motorCommandMutex);
+    if (motorCommandQueue.size() < COMMAND_BUFFER_LEN)
+    {
+      // pass new values into shared space
+      struct MotorCommand newCommand;
+      newCommand.commandType = MOTOR_MOVE;
+      newCommand.x = newXValue.as<int>();
+      newCommand.y = newYValue.as<int>();
+      motorCommandQueue.add(newCommand);
 
-    Serial.print(F("Info: Queued move command to coordinates (x,y) = "));
-    Serial.print(newCommand.x);
-    Serial.print(F(","));
-    Serial.println(newCommand.y);
+      Serial.print(F("Info: Queued move command to coordinates (x,y) = "));
+      Serial.print(newCommand.x);
+      Serial.print(F(","));
+      Serial.print(newCommand.y);
+      Serial.print(F(" at position "));
+      Serial.println(motorCommandQueue.size());
+    }
+    else
+    {
+      Serial.println(F("Warning: Queue full; move command discarded"));
+      result = 400;
+    }
+    xSemaphoreGive(motorCommandMutex);
   }
   else if (strcmp(methodName, "reset") == 0)
   {
-    // pass new values into shared space
     xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
-    struct MotorCommand newCommand;
-    newCommand.commandType = MOTOR_RESET;
-    motorCommandQueue.add(newCommand);
+    if (motorCommandQueue.size() < COMMAND_BUFFER_LEN)
+    {
+      // pass new values into shared space
+      struct MotorCommand newCommand;
+      newCommand.commandType = MOTOR_RESET;
+      motorCommandQueue.add(newCommand);
+      Serial.print(F("Info: Queued reset command at position "));
+      Serial.println(motorCommandQueue.size());
+    }
+    else
+    {
+      Serial.println(F("Warning: Queue full; reset command discarded"));
+      result = 400;
+    }
     xSemaphoreGive(motorCommandMutex);
-
-    Serial.println(F("Info: Queued reset command"));
   }
   else
   {
-    responseMessage = "{\"status\":404}";
     result = 404;
-
     Serial.println(F("Warning: Received invalid command"));
   }
+
+  snprintf(responseMessage, MESSAGE_MAX_LEN, responseMessageData, result);
 
   *response_size = strlen(responseMessage) + 1;
   *response = (unsigned char *)strdup(responseMessage);
@@ -331,8 +352,8 @@ static void CommsTask(void *pvParameters)
         char messagePayload[MESSAGE_MAX_LEN];
 
         /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
-        // increase priority for strict timing requirements with ultrasound sensor
-        vTaskPrioritySet(commsTask, 2);
+        // increase priority for strict timing requirements with ultrasound sensor (higher than everything except wifi task)
+        vTaskPrioritySet(commsTask, 5);
         double xDistance = GetUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
         double yDistance = GetUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
         vTaskPrioritySet(commsTask, 1);
