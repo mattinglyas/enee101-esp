@@ -12,8 +12,9 @@ Designed for the ENEE101 Covid19 Response Project.
 
 1. Clone the entire repository into a folder 
 2. Open project using Platformio using any editor
-3. Download any missing libraries using "pio lib install <>"
-4. Go to config setup
+3. Build project
+4. Download any missing libraries using "pio lib install <>", replacing <> with the name of any library missing
+5. Go to config setup
 
 ### In Arduino IDE
 
