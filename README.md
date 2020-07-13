@@ -137,7 +137,7 @@ Array of signed integer values in sequential order associated with "x" and "y" t
 
 ```
 {
-    "methodName": "move",
+    "methodName": "moveArray",
     "responseTimeoutInSeconds": 200,
     "payload" : {
         "x": [500, -120, 40000, 0, 12300],
