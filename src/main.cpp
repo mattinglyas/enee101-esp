@@ -390,14 +390,14 @@ static void CommsTask(void *pvParameters)
     {
       if (messageSending && (int)(millis() - send_interval_ms) >= interval)
       {
+        send_interval_ms = millis();
         char messagePayload[MESSAGE_MAX_LEN];
 
-        /* DEMO: RANDOM VALUES, REPLACE WITH SENSOR CODE */
-        // increase priority for strict timing requirements with ultrasound sensor (higher than everything except wifi task)
-        vTaskPrioritySet(commsTask, 5);
+        // suspend task scheduler to ensure specific timing of ultrasonic sensors is met
+        vTaskSuspendAll();
         double xDistance = GetUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
         double yDistance = GetUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
-        vTaskPrioritySet(commsTask, 1);
+        xTaskResumeAll();
 
         // copy into message
         snprintf(messagePayload, MESSAGE_MAX_LEN, messageData, messageCount++, xDistance, yDistance);
@@ -407,8 +407,6 @@ static void CommsTask(void *pvParameters)
 
         EVENT_INSTANCE *message = Esp32MQTTClient_Event_Generate(messagePayload, MESSAGE);
         Esp32MQTTClient_SendEventInstance(message);
-
-        send_interval_ms = millis();
       }
 
       Esp32MQTTClient_Check();
