@@ -11,6 +11,8 @@
 #define MESSAGE_MAX_LEN 2048 // size of message buffers
 #define COMMAND_BUFFER_LEN 256  // local command queue max length
 
+#define WIFI_TIMEOUT_MS 10000 // timeout for connecting to wifi network
+
 #define ONBOARD_LED_PIN 2
 
 #define ULTRASOUND_X_TRIG_PIN 5
@@ -70,12 +72,12 @@ static enum MotorState currentMotorState;
 SemaphoreHandle_t motorCommandMutex;
 
 // task handlers
-TaskHandle_t commsTask;
-TaskHandle_t motorTask;
+TaskHandle_t commsTaskHandler;
+TaskHandle_t motorTaskHandler;
 
 /* //////////////// Azure Utilities //////////////// */
 
-static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
+static void sendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
 {
   if (result == IOTHUB_CLIENT_CONFIRMATION_OK)
   {
@@ -83,13 +85,13 @@ static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
   }
 }
 
-static void MessageCallback(const char *payload, int size)
+static void messageCallback(const char *payload, int size)
 {
   Serial.print(F("Info: Message callback:"));
   Serial.println(payload);
 }
 
-static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsigned char *payload, int size)
+static void deviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsigned char *payload, int size)
 {
   char *temp = (char *)malloc(size + 1);
   if (temp == NULL)
@@ -103,7 +105,7 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
   free(temp);
 }
 
-static int DeviceMethodCallback(const char *methodName, const unsigned char *payload, int size, unsigned char **response, int *response_size)
+static int deviceMethodCallback(const char *methodName, const unsigned char *payload, int size, unsigned char **response, int *response_size)
 {
   Serial.print("Info: Trying to invoke method ");
   Serial.println(methodName);
@@ -247,27 +249,32 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
 
 /* //////////////// Device Utilities //////////////// */
 
-static bool InitWifi()
+static bool initWifi(int timeoutInMs)
 {
-  Serial.print(F("Info: Connecting to "));
+  Serial.print(F("Info: Attempting to connect to "));
   Serial.println(ssid);
   WiFi.begin(ssid, password);
 
-  // hang while not connected (bit of a hack)
-  // TODO make connection time out, return with hasWifi false
+  int endTime = millis() + timeoutInMs;
+
   do
   {
-    delay(500);
-    Serial.print(".");
+    //delay(500);
+    //Serial.print(".");
+    delay(50);
+    if (millis() > endTime) 
+    {
+      Serial.println(F("Error: Could not connect to WiFi"));
+      return false;
+    }
   } while (WiFi.status() != WL_CONNECTED);
 
-  Serial.println();
   Serial.print(F("Info: WiFi connected. Local IP Address: "));
   Serial.println(WiFi.localIP());
   return true;
 }
 
-static double GetUltrasoundDistanceInInches(int trigPin, int echoPin)
+static double getUltrasoundDistanceInInches(int trigPin, int echoPin)
 {
   // pinModes are necessary for some reason. Code does not work without them
 
@@ -283,7 +290,7 @@ static double GetUltrasoundDistanceInInches(int trigPin, int echoPin)
   return ((double)duration) / 74 / 2;
 }
 
-static void ResetMotors()
+static void resetMotors()
 {
   digitalWrite(MOTOR_X_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
@@ -306,7 +313,7 @@ static void ResetMotors()
   }
 }
 
-static void MoveMotors(int xxx, int yyy)
+static void moveMotors(int xxx, int yyy)
 {
   unsigned long ctrstepx = 0;
   unsigned long ctrstepy = 0;
@@ -364,23 +371,25 @@ static void MoveMotors(int xxx, int yyy)
 
 /* //////////////// Tasks //////////////// */
 
-static void CommsTask(void *pvParameters)
+static void commsTask(void *pvParameters)
 {
   Serial.print(F("Info: Starting messaging task on core "));
   Serial.println(xPortGetCoreID());
 
   // initialize wifi module
-  bool hasWifi = InitWifi();
-  if (!hasWifi)
-    return;
+  bool hasWifi = false;
+  do
+  {
+    hasWifi = initWifi(WIFI_TIMEOUT_MS);
+  } while (!hasWifi);
 
   Esp32MQTTClient_SetOption(OPTION_MINI_SOLUTION_NAME, "ENEE101-ESP32");
-  Esp32MQTTClient_Init((const uint8_t *)connectionString, true);
+  Esp32MQTTClient_Init((const uint8_t *) connectionString, true);
 
-  Esp32MQTTClient_SetSendConfirmationCallback(SendConfirmationCallback);
-  Esp32MQTTClient_SetMessageCallback(MessageCallback);
-  Esp32MQTTClient_SetDeviceTwinCallback(DeviceTwinCallback);
-  Esp32MQTTClient_SetDeviceMethodCallback(DeviceMethodCallback);
+  Esp32MQTTClient_SetSendConfirmationCallback(sendConfirmationCallback);
+  Esp32MQTTClient_SetMessageCallback(messageCallback);
+  Esp32MQTTClient_SetDeviceTwinCallback(deviceTwinCallback);
+  Esp32MQTTClient_SetDeviceMethodCallback(deviceMethodCallback);
 
   send_interval_ms = millis();
 
@@ -395,8 +404,8 @@ static void CommsTask(void *pvParameters)
 
         // suspend task scheduler to ensure specific timing of ultrasonic sensors is met
         vTaskSuspendAll();
-        double xDistance = GetUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
-        double yDistance = GetUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
+        double xDistance = getUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
+        double yDistance = getUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
         xTaskResumeAll();
 
         // copy into message
@@ -409,15 +418,27 @@ static void CommsTask(void *pvParameters)
         Esp32MQTTClient_SendEventInstance(message);
       }
 
-      Esp32MQTTClient_Check();
+    }
+    else 
+    {
+      hasWifi = initWifi(WIFI_TIMEOUT_MS);
     }
 
+    if (WiFi.status() == WL_CONNECTED) 
+    {
+      Esp32MQTTClient_Check();
+    }
+    else
+    {
+      hasWifi = false;
+    }
+    
     vTaskDelay(100);
-    //TODO check if wifi is still connected
   }
+
 }
 
-static void MotorTask(void *pvParameters)
+static void motorTask(void *pvParameters)
 {
   Serial.print(F("Info: Starting motor task on core "));
   Serial.println(xPortGetCoreID());
@@ -459,7 +480,7 @@ static void MotorTask(void *pvParameters)
           Serial.print(F(","));
           Serial.println(command.y);
           
-          MoveMotors(command.x, command.y);
+          moveMotors(command.x, command.y);
 
           Serial.println(F("Info: Move finished"));
           break;
@@ -467,7 +488,7 @@ static void MotorTask(void *pvParameters)
         case MOTOR_RESET:
         {
           Serial.println(F("Info: Resetting motors"));
-          ResetMotors();
+          resetMotors();
           Serial.println(F("Info: Reset finished"));
           break;
         }
@@ -516,21 +537,21 @@ void setup()
   motorCommandMutex = xSemaphoreCreateMutex();
 
   xTaskCreatePinnedToCore(
-      CommsTask,
+      commsTask,
       "Comms Task",
       65536,
       NULL,
       1,
-      &commsTask,
+      &commsTaskHandler,
       0);
 
   xTaskCreatePinnedToCore(
-      MotorTask,
+      motorTask,
       "Motor Task",
       16384,
       NULL,
       1,
-      &motorTask,
+      &motorTaskHandler,
       1);
 }
 
