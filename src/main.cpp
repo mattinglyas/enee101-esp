@@ -5,7 +5,7 @@
 #include "FreeRTOS.h"
 #include "AzureIotHub.h"
 #include "Esp32MQTTClient.h"
-#include "Config.h"
+#include "config.h"
 
 #define MESSAGE_MAX_LEN 2048 // size of message buffers
 #define COMMAND_BUFFER_LEN 256  // local command queue max length
