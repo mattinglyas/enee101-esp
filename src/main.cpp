@@ -25,7 +25,7 @@
 #define MOTOR_Y_STEP_PIN 21
 #define MOTOR_Y_DIR_PIN 19
 
-#define LIMIT_X_LOW 27 // white wire
+#define LIMIT_X_LOW 25 // white wire
 #define LIMIT_X_HIGH 26 // yellow wire
 #define LIMIT_Y_LOW 12 // purple wire
 #define LIMIT_Y_HIGH 13 // orange wire
@@ -327,7 +327,7 @@ static void resetMotors()
     digitalWrite(MOTOR_X_STEP_PIN, LOW);
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
     delayMicroseconds(STEP_SPEED);
-  } while (!xLimit || !yLimit);
+  } while (xLimit || yLimit);
 
   xValue = 0;
   yValue = 0;
