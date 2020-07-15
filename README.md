@@ -19,9 +19,10 @@ Designed for the ENEE101 Covid19 Response Project.
 ### In Arduino IDE
 
 1. Download main.cpp and rename to main.ino
-2. Copy the contents of ./lib/ into Arduino/libraries folder 
-3. Download any missing libraries using the Arduino Library Manager
-4. Go to config setup
+2. Copy the folders "ArduinoJson", "ArrayQueue", "ESP32 Azure IoT Arduino" and "FreeRTOS" from ./lib/ into Arduino/libraries folder 
+3. Replace \#include "config.h" with #include "../lib/config/src/config.h" in main.ino
+4. Download any missing libraries using the Arduino Library Manager
+5. Go to config setup
 
 ### Config Setup
 These steps assume that there is a functional Azure IoT Hub and device already set up. Instructions to do so can be found at https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-create-through-portal
