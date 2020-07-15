@@ -25,6 +25,11 @@
 #define MOTOR_Y_STEP_PIN 21
 #define MOTOR_Y_DIR_PIN 19
 
+#define LIMIT_X_LOW 27 // white wire
+#define LIMIT_X_HIGH 26 // yellow wire
+#define LIMIT_Y_LOW 12 // purple wire
+#define LIMIT_Y_HIGH 13 // orange wire
+
 #define CLK_PIN 4
 #define DAT_PIN 0
 
@@ -40,8 +45,8 @@ enum MotorState
 struct MotorCommand
 {
   enum MotorState commandType;
-  int x;
-  int y;
+  long x;
+  long y;
 };
 
 struct UltrasonicSensor {
@@ -163,8 +168,8 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
       // pass new values into shared space
       struct MotorCommand newCommand;
       newCommand.commandType = MOTOR_MOVE;
-      newCommand.x = newXValue.as<int>();
-      newCommand.y = newYValue.as<int>();
+      newCommand.x = newXValue.as<long>();
+      newCommand.y = newYValue.as<long>();
       motorCommandQueue.push(newCommand);
 
       Serial.print(F("Info: Queued move command with input (x,y) = "));
@@ -196,8 +201,8 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
           // pass new values into shared space
           struct MotorCommand newCommand;
           newCommand.commandType = MOTOR_MOVE;
-          newCommand.x = doc["x"][i];
-          newCommand.y = doc["y"][i];
+          newCommand.x = doc["x"][i].as<long>();
+          newCommand.y = doc["y"][i].as<long>();
           motorCommandQueue.push(newCommand);
 
           Serial.print(F("Info: Queued array move command with input (x,y) = "));
@@ -302,23 +307,34 @@ static void resetMotors()
 {
   digitalWrite(MOTOR_X_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
-  while (xValue > 0 || yValue > 0)
+
+  bool xLimit, yLimit;
+
+  do
   {
-    if (xValue > 0)
+    xLimit = (digitalRead(LIMIT_X_LOW) == LOW);
+    yLimit = (digitalRead(LIMIT_Y_HIGH) == LOW);
+
+    if (xLimit)
     {
       digitalWrite(MOTOR_X_STEP_PIN, HIGH);
-      xValue--;
     }
-    if (yValue > 0)
+    if (yLimit)
     {
       digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
-      yValue--;
     }
     delayMicroseconds(STEP_SPEED);
     digitalWrite(MOTOR_X_STEP_PIN, LOW);
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
     delayMicroseconds(STEP_SPEED);
-  }
+  } while (!xLimit || !yLimit);
+
+  xValue = 0;
+  yValue = 0;
+
+  // reset directional pins
+  digitalWrite(MOTOR_X_DIR_PIN, LOW);
+  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
 }
 
 static void moveMotors(int xxx, int yyy)
@@ -326,34 +342,48 @@ static void moveMotors(int xxx, int yyy)
   unsigned long ctrstepx = 0;
   unsigned long ctrstepy = 0;
 
-  int flagsx = 0; // assigning sign to x value input. 0 means positive 1 means negative
-  int flagsy = 0; // assigning sign to y value input. 0 means positive 1 means negative
+  bool flagsx = false; // assigning sign to x value input. false means positive (high); true means negative (low)
+  bool flagsy = false; // assigning sign to y value input. false means positive (low); true means negative (high)
 
-  if (xxx > 0)
+  if (xxx > 0) 
     digitalWrite(MOTOR_X_DIR_PIN, HIGH); // setting x motor direction according to input
-  if (xxx < 0)
+  else
   {
     digitalWrite(MOTOR_X_DIR_PIN, LOW); // setting x motor direction according to input
     xxx = abs(xxx);
-    flagsx = 1;
+    flagsx = true;
   }
-  if (yyy > 0)
+
+  if (yyy >= 0)
     digitalWrite(MOTOR_Y_DIR_PIN, LOW); // setting y motor direction according to input
-  if (yyy < 0)
+  else
   {
     digitalWrite(MOTOR_Y_DIR_PIN, HIGH); // setting y motor direction according to input
     yyy = abs(yyy);
-    flagsy = 1;
+    flagsy = true;
   }
 
-  while (ctrstepx <= xxx || ctrstepy <= yyy)
+  // assign directional limit switch pins
+  uint8_t xLimitSwitchPin = (flagsx ? LIMIT_X_LOW : LIMIT_X_HIGH);
+  uint8_t yLimitSwitchPin = (flagsy ? LIMIT_Y_HIGH : LIMIT_Y_LOW);
+
+  bool xMove, yMove;
+
+  do
   {
-    if (ctrstepx <= xxx)
+    // check if motors can be moved
+    xMove = (ctrstepx <= xxx && digitalRead(xLimitSwitchPin) == LOW);
+    yMove = (ctrstepy <= yyy && digitalRead(yLimitSwitchPin) == LOW);
+
+    // move in the x direction unless the limit switch is toggled 
+    if (xMove)
     {
       digitalWrite(MOTOR_X_STEP_PIN, HIGH);
       ctrstepx++;
     }
-    if (ctrstepy <= yyy)
+
+    // move in the y direction unless the limit switch is toggled 
+    if (yMove)
     {
       digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
       ctrstepy++;
@@ -362,19 +392,14 @@ static void moveMotors(int xxx, int yyy)
     digitalWrite(MOTOR_X_STEP_PIN, LOW);
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
     delayMicroseconds(STEP_SPEED);
-  }
+  } while (xMove || yMove);
 
-  if (flagsx == 1)              // flags[ign]x is determined in the function input(), it is to keep track of the sign
-    xValue = xValue - ctrstepx; // of the input.
-  if (flagsx == 0)
-    xValue = xValue + ctrstepx;
-  ctrstepx = 0;
+  xValue += (flagsx ? -1 : 1) * ctrstepx;
+  yValue += (flagsy ? -1 : 1) * ctrstepy;
 
-  if (flagsy == 1)              // flags[ign]y is determined in the function input(), it is to keep track of the sign
-    yValue = yValue - ctrstepy; // of the input.
-  if (flagsy == 0)
-    yValue = yValue + ctrstepy;
-  ctrstepy = 0;
+  // reset directional pins
+  digitalWrite(MOTOR_X_DIR_PIN, LOW);
+  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
 }
 
 /* //////////////// Tasks //////////////// */
@@ -530,6 +555,10 @@ void setup()
   pinMode(ONBOARD_LED_PIN, OUTPUT);
   pinMode(CLK_PIN, INPUT);
   pinMode(DAT_PIN, INPUT);
+  pinMode(LIMIT_X_LOW, INPUT);
+  pinMode(LIMIT_X_HIGH, INPUT);
+  pinMode(LIMIT_Y_LOW, INPUT);
+  pinMode(LIMIT_Y_HIGH, INPUT);
 
   digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
   digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
@@ -539,6 +568,11 @@ void setup()
   digitalWrite(MOTOR_Y_STEP_PIN, LOW);
 
   digitalWrite(ONBOARD_LED_PIN, ledValue);
+  
+  Serial.println(digitalRead(LIMIT_X_LOW) == LOW);
+  Serial.println(digitalRead(LIMIT_X_HIGH) == LOW);
+  Serial.println(digitalRead(LIMIT_Y_LOW) == LOW);
+  Serial.println(digitalRead(LIMIT_Y_HIGH) == LOW);
 
   Serial.begin(115200);
   Serial.println(F("ESP32 Device"));
@@ -547,22 +581,24 @@ void setup()
   motorCommandMutex = xSemaphoreCreateMutex();
 
   xTaskCreatePinnedToCore(
-      commsTask,
-      "Comms Task",
-      65536,
-      NULL,
-      1,
-      &commsTaskHandler,
-      0);
+    commsTask,
+    "Comms Task",
+    65536,
+    NULL,
+    1,
+    &commsTaskHandler,
+    0);
+
+  delay(200);
 
   xTaskCreatePinnedToCore(
-      motorTask,
-      "Motor Task",
-      16384,
-      NULL,
-      1,
-      &motorTaskHandler,
-      1);
+    motorTask,
+    "Motor Task",
+    16384,
+    NULL,
+    1,
+    &motorTaskHandler,
+    1);
 }
 
 void loop()
