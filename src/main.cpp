@@ -1,9 +1,8 @@
 #include <Arduino.h>
 #include <Wifi.h>
-#include <ArduinoJson.h>
-#include <Math.h>
-#include <FreeRTOS.h>
-#include "Queue.h"
+#include "ArrayQueue.h"
+#include "ArduinoJson.h"
+#include "FreeRTOS.h"
 #include "AzureIotHub.h"
 #include "Esp32MQTTClient.h"
 #include "Config.h"
@@ -76,7 +75,7 @@ static long yValue = 0;
 static long xValue = 0;
 
 // shared resource for hardware and comms thread to communicate values
-static Queue<MotorCommand> motorCommandQueue = Queue<MotorCommand>(COMMAND_BUFFER_LEN);
+static ArrayQueue<MotorCommand> motorCommandQueue = ArrayQueue<MotorCommand>(COMMAND_BUFFER_LEN);
 static enum MotorState currentMotorState;
 SemaphoreHandle_t motorCommandMutex;
 
@@ -568,4 +567,5 @@ void setup()
 
 void loop()
 {
+  vTaskSuspend(NULL);
 }
