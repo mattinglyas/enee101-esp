@@ -3,10 +3,10 @@
 #include <ArduinoJson.h>
 #include <Math.h>
 #include <FreeRTOS.h>
-#include <LinkedList.h>
+#include "Queue.h"
 #include "AzureIotHub.h"
 #include "Esp32MQTTClient.h"
-#include "config.h"
+#include "Config.h"
 
 #define MESSAGE_MAX_LEN 2048 // size of message buffers
 #define COMMAND_BUFFER_LEN 256  // local command queue max length
@@ -45,6 +45,15 @@ struct MotorCommand
   int y;
 };
 
+struct UltrasonicSensor {
+  uint8_t trig;
+  uint8_t echo;
+};
+
+// ultrasonic sensors
+static const UltrasonicSensor xSensor = {ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN};
+static const UltrasonicSensor ySensor = {ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN};
+
 // TODO look into wifimanager library or similar solutions to prevent wifi settings from being stored in plaintext
 const char *ssid = CONFIG_WIFI_NAME;
 const char *password = CONFIG_WIFI_PASSWORD;
@@ -67,7 +76,7 @@ static long yValue = 0;
 static long xValue = 0;
 
 // shared resource for hardware and comms thread to communicate values
-static LinkedList<MotorCommand> motorCommandQueue;
+static Queue<MotorCommand> motorCommandQueue = Queue<MotorCommand>(COMMAND_BUFFER_LEN);
 static enum MotorState currentMotorState;
 SemaphoreHandle_t motorCommandMutex;
 
@@ -150,21 +159,21 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
     JsonVariant newYValue = doc["y"];
 
     xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
-    if (motorCommandQueue.size() < COMMAND_BUFFER_LEN)
+    if (motorCommandQueue.count() < COMMAND_BUFFER_LEN)
     {
       // pass new values into shared space
       struct MotorCommand newCommand;
       newCommand.commandType = MOTOR_MOVE;
       newCommand.x = newXValue.as<int>();
       newCommand.y = newYValue.as<int>();
-      motorCommandQueue.add(newCommand);
+      motorCommandQueue.push(newCommand);
 
       Serial.print(F("Info: Queued move command with input (x,y) = "));
       Serial.print(newCommand.x);
       Serial.print(F(","));
       Serial.print(newCommand.y);
       Serial.print(F(" at position "));
-      Serial.println(motorCommandQueue.size());
+      Serial.println(motorCommandQueue.count());
     }
     else
     {
@@ -183,21 +192,21 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
       xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
       for (int i = 0; i < arraySizeX; i++) 
       {
-        if (motorCommandQueue.size() < COMMAND_BUFFER_LEN)
+        if (motorCommandQueue.count() < COMMAND_BUFFER_LEN)
         {
           // pass new values into shared space
           struct MotorCommand newCommand;
           newCommand.commandType = MOTOR_MOVE;
           newCommand.x = doc["x"][i];
           newCommand.y = doc["y"][i];
-          motorCommandQueue.add(newCommand);
+          motorCommandQueue.push(newCommand);
 
           Serial.print(F("Info: Queued array move command with input (x,y) = "));
           Serial.print(newCommand.x);
           Serial.print(F(","));
           Serial.print(newCommand.y);
           Serial.print(F(" at position "));
-          Serial.println(motorCommandQueue.size());
+          Serial.println(motorCommandQueue.count());
         }
         else
         {
@@ -217,14 +226,14 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
   else if (strcmp(methodName, "reset") == 0)
   {
     xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
-    if (motorCommandQueue.size() < COMMAND_BUFFER_LEN)
+    if (motorCommandQueue.count() < COMMAND_BUFFER_LEN)
     {
       // pass new values into shared space
       struct MotorCommand newCommand;
       newCommand.commandType = MOTOR_RESET;
-      motorCommandQueue.add(newCommand);
+      motorCommandQueue.push(newCommand);
       Serial.print(F("Info: Queued reset command at position "));
-      Serial.println(motorCommandQueue.size());
+      Serial.println(motorCommandQueue.count());
     }
     else
     {
@@ -274,20 +283,20 @@ static bool initWifi(int timeoutInMs)
   return true;
 }
 
-static double getUltrasoundDistanceInInches(int trigPin, int echoPin)
+static double getUltrasonicDistanceInInches(const UltrasonicSensor* s)
 {
   // pinModes are necessary for some reason. Code does not work without them
 
   long duration;
-  pinMode(trigPin, OUTPUT);
-  digitalWrite(trigPin, LOW);
+  pinMode((*s).trig, OUTPUT);
+  digitalWrite((*s).trig, LOW);
   delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
+  digitalWrite((*s).trig, HIGH);
   delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  pinMode(echoPin, INPUT);
-  duration = pulseIn(echoPin, HIGH);
-  return ((double)duration) / 74 / 2;
+  digitalWrite((*s).trig, LOW);
+  pinMode((*s).echo, INPUT);
+  duration = pulseIn((*s).echo, HIGH);
+  return ((double) duration) / 74 / 2;
 }
 
 static void resetMotors()
@@ -404,8 +413,8 @@ static void commsTask(void *pvParameters)
 
         // suspend task scheduler to ensure specific timing of ultrasonic sensors is met
         vTaskSuspendAll();
-        double xDistance = getUltrasoundDistanceInInches(ULTRASOUND_X_TRIG_PIN, ULTRASOUND_X_ECHO_PIN);
-        double yDistance = getUltrasoundDistanceInInches(ULTRASOUND_Y_TRIG_PIN, ULTRASOUND_Y_ECHO_PIN);
+        double xDistance = getUltrasonicDistanceInInches(&xSensor);
+        double yDistance = getUltrasonicDistanceInInches(&ySensor);
         xTaskResumeAll();
 
         // copy into message
@@ -421,9 +430,11 @@ static void commsTask(void *pvParameters)
     }
     else 
     {
+      // try to connect if connection is lost
       hasWifi = initWifi(WIFI_TIMEOUT_MS);
     }
 
+    // check for new messages 
     if (WiFi.status() == WL_CONNECTED) 
     {
       Esp32MQTTClient_Check();
@@ -453,15 +464,15 @@ static void motorTask(void *pvParameters)
   {
     // check for new data from communications thread
     xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
-    commandQueueLength = motorCommandQueue.size();
+    commandQueueLength = motorCommandQueue.count();
     xSemaphoreGive(motorCommandMutex);
 
     while (commandQueueLength > 0)
     {
       // new data is available, copy first command
       xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
-      command = motorCommandQueue.shift();
-      commandQueueLength = motorCommandQueue.size();
+      command = motorCommandQueue.pop();
+      commandQueueLength = motorCommandQueue.count();
       xSemaphoreGive(motorCommandMutex);
 
       currentMotorState = command.commandType;
