@@ -389,10 +389,10 @@ static void moveMotors(int xxx, int yyy)
   }
 
   if (yyy > 0)
-    digitalWrite(MOTOR_Y_DIR_PIN, LOW); // setting y motor direction according to input
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH); // setting y motor direction according to input
   else
   {
-    digitalWrite(MOTOR_Y_DIR_PIN, HIGH); // setting y motor direction according to input
+    digitalWrite(MOTOR_Y_DIR_PIN, LOW); // setting y motor direction according to input
     yyy = abs(yyy);
     flagsy = true;
   }
