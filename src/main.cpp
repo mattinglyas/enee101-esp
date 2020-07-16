@@ -333,7 +333,7 @@ static void resetMotors()
   digitalWrite(MOTOR_XY_ENABLE_PIN, LOW);
 
   digitalWrite(MOTOR_X_DIR_PIN, LOW);
-  digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
+  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
 
   bool xMove, yMove, xLimit, yLimit;
   // move the motors until the limit switches are hit
@@ -342,7 +342,7 @@ static void resetMotors()
     xLimit = (digitalRead(LIMIT_X_PIN) == LOW);
     yLimit = (digitalRead(LIMIT_Y_PIN) == LOW);
     xMove = (xLimitState == LIMIT_HIGH || xLimit);
-    yMove = (yLimitState == LIMIT_LOW || yLimit);
+    yMove = (yLimitState == LIMIT_HIGH || yLimit);
 
     // reset state if opposite side limit switch hit
     if (xLimit) 
@@ -374,7 +374,7 @@ static void resetMotors()
 
   // set limit switch state
   xLimitState = LIMIT_LOW;
-  yLimitState = LIMIT_HIGH;
+  yLimitState = LIMIT_LOW;
 
   // reset encoder position
   encoderXPosCur = 0;
@@ -394,7 +394,7 @@ static void moveMotors(long xxx, long yyy)
   long targetEncoderYPos = encoderYPosCur + yyy;
 
   bool xDir = false; // assigning sign to x value input. false means positive (high); true means negative (low)
-  bool yDir = false; // assigning sign to y value input. false means positive (low); true means negative (high)
+  bool yDir = false; // assigning sign to y value input. false means positive (high); true means negative (low)
 
   // setting x motor direction according to input
   if (xxx >= 0) 
@@ -406,22 +406,22 @@ static void moveMotors(long xxx, long yyy)
   }
 
   if (yyy >= 0)
-    digitalWrite(MOTOR_Y_DIR_PIN, LOW); 
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH); 
   else
   {
-    digitalWrite(MOTOR_Y_DIR_PIN, HIGH); 
-    yDir = true;
+    digitalWrite(MOTOR_Y_DIR_PIN, LOW); 
+    yDir = true; 
   }
 
   // flag for if motors need to be moved in this direction
   bool xMove = xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur);
-  bool yMove = yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur);
+  bool yMove = yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur);
 
   do
   {
     // check if steps are still left in the motor move
     xMove = xMove && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
-    yMove = yMove && (yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur));
+    yMove = yMove && (yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur));
 
     // advance x motor state machine if steps are still left and can still move
     if (xMove)
@@ -492,14 +492,14 @@ static void moveMotors(long xxx, long yyy)
           {
             // limit switch hit in same direction as motor movement
             yMove = false;
-            yLimitState = yDir ? LIMIT_HIGH : LIMIT_LOW;
+            yLimitState = yDir ? LIMIT_LOW : LIMIT_HIGH;
             Serial.println(F("Warning: Limit switch hit in Y direction"));
           }
           break;
         }
         case LIMIT_LOW:
         {
-          if (yLimitValue == HIGH && !yDir) 
+          if (yLimitValue == HIGH && yDir) 
           {
             // limit switch is high in same direction as motor movement
             yMove = false;
@@ -515,7 +515,7 @@ static void moveMotors(long xxx, long yyy)
         }
         case LIMIT_HIGH:
         {
-          if (yLimitValue == HIGH && yDir)
+          if (yLimitValue == HIGH && !yDir)
           {
             // limit switch is high in same direction as motor movement
             yMove = false;
