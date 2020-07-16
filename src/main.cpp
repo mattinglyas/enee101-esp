@@ -30,6 +30,15 @@
 #define LIMIT_X_PIN 12 // purple wire
 #define LIMIT_Y_PIN 13 // orange wire
 
+#define ENCODER_X_A_PIN 25  // CLK X
+#define ENCODER_X_A_REGISTER 0x2000000   // register for GPIO25
+#define ENCODER_X_B_PIN 26  // DATA X
+#define ENCODER_X_B_REGISTER 0x4000000   // register for GPIO26
+#define ENCODER_Y_A_PIN 27  // CLK Y
+#define ENCODER_Y_A_REGISTER 0x8000000    // register for GPIO27
+#define ENCODER_Y_B_PIN 14  // DATA Y
+#define ENCODER_Y_B_REGISTER 0x4000       // register for GPIO14
+
 #define STEP_SPEED 100
 
 enum MotorState
@@ -73,15 +82,11 @@ static const char *connectionString = CONFIG_CONNECTION_STRING;
 const char *messageData = "{\"messageId\":%d, \"x_distance\":%lf, \"y_distance\":%lf}";
 const char *responseMessageData = "{\"status\": %d}";
 
-int messageCount = 1;
+static int messageCount = 1;
 static long interval = 2000; //ms between telemetry messages
 static bool messageSending = true;
 static uint64_t send_interval_ms;
 static bool ledValue = false;
-
-// stored x and y values
-static long yValue = 0;
-static long xValue = 0;
 
 // states for limit switches
 static enum LimitState xLimitState = LIMIT_NONE;
@@ -95,6 +100,17 @@ SemaphoreHandle_t motorCommandMutex;
 // task handlers
 TaskHandle_t commsTaskHandler;
 TaskHandle_t motorTaskHandler;
+
+// encoder values
+volatile byte aXFlag = 0;
+volatile byte bXFlag = 0;
+volatile long encoderXPosCur = 0;
+volatile unsigned long readXReg = 0;
+
+volatile byte aYFlag = 0;
+volatile byte bYFlag = 0;
+volatile long encoderYPosCur = 0;
+volatile unsigned long readYReg = 0;
 
 /* //////////////// Azure Utilities //////////////// */
 
@@ -360,51 +376,52 @@ static void resetMotors()
   xLimitState = LIMIT_LOW;
   yLimitState = LIMIT_HIGH;
 
-  xValue = 0;
-  yValue = 0;
+  // reset encoder position
+  encoderXPosCur = 0;
+  encoderYPosCur = 0;
 
   // turn off motors
   digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);
 }
 
-static void moveMotors(int xxx, int yyy)
+static void moveMotors(long xxx, long yyy)
 {
   // turn on motors
   digitalWrite(MOTOR_XY_ENABLE_PIN, LOW);
 
-  unsigned long ctrstepx = 0;
-  unsigned long ctrstepy = 0;
+  // calculate target encoder state
+  long targetEncoderXPos = encoderXPosCur + xxx;
+  long targetEncoderYPos = encoderYPosCur + yyy;
 
-  bool flagsx = false; // assigning sign to x value input. false means positive (high); true means negative (low)
-  bool flagsy = false; // assigning sign to y value input. false means positive (low); true means negative (high)
+  bool xDir = false; // assigning sign to x value input. false means positive (high); true means negative (low)
+  bool yDir = false; // assigning sign to y value input. false means positive (low); true means negative (high)
 
-  if (xxx > 0) 
-    digitalWrite(MOTOR_X_DIR_PIN, HIGH); // setting x motor direction according to input
+  // setting x motor direction according to input
+  if (xxx >= 0) 
+    digitalWrite(MOTOR_X_DIR_PIN, HIGH); 
   else
   {
-    digitalWrite(MOTOR_X_DIR_PIN, LOW); // setting x motor direction according to input
-    xxx = abs(xxx);
-    flagsx = true;
+    digitalWrite(MOTOR_X_DIR_PIN, LOW); 
+    xDir = true;
   }
 
   if (yyy >= 0)
-    digitalWrite(MOTOR_Y_DIR_PIN, LOW); // setting y motor direction according to input
+    digitalWrite(MOTOR_Y_DIR_PIN, LOW); 
   else
   {
-    digitalWrite(MOTOR_Y_DIR_PIN, HIGH); // setting y motor direction according to input
-    yyy = abs(yyy);
-    flagsy = true;
+    digitalWrite(MOTOR_Y_DIR_PIN, HIGH); 
+    yDir = true;
   }
 
-  // flag for if motors can be moved in this direction
-  bool xMove = (ctrstepx < xxx);
-  bool yMove = (ctrstepy < yyy);
+  // flag for if motors need to be moved in this direction
+  bool xMove = xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur);
+  bool yMove = yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur);
 
   do
   {
     // check if steps are still left in the motor move
-    xMove = xMove && (ctrstepx < xxx);
-    yMove = yMove && (ctrstepy < yyy);
+    xMove = xMove && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
+    yMove = yMove && (yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur));
 
     // advance x motor state machine if steps are still left and can still move
     if (xMove)
@@ -418,14 +435,14 @@ static void moveMotors(int xxx, int yyy)
           {
             // limit switch hit in same direction as motor movement
             xMove = false;
-            xLimitState = flagsx ? LIMIT_LOW : LIMIT_HIGH;
+            xLimitState = xDir ? LIMIT_LOW : LIMIT_HIGH;
             Serial.println(F("Warning: Limit switch hit in X direction"));
           }
           break;
         }
         case LIMIT_LOW:
         {
-          if (xLimitValue == HIGH && flagsx) 
+          if (xLimitValue == HIGH && xDir) 
           {
             // limit switch is high in same direction as motor movement
             xMove = false;
@@ -441,7 +458,7 @@ static void moveMotors(int xxx, int yyy)
         }
         case LIMIT_HIGH:
         {
-          if (xLimitValue == HIGH && !flagsx)
+          if (xLimitValue == HIGH && !xDir)
           {
             // limit switch is high in same direction as motor movement
             xMove = false;
@@ -475,14 +492,14 @@ static void moveMotors(int xxx, int yyy)
           {
             // limit switch hit in same direction as motor movement
             yMove = false;
-            yLimitState = flagsy ? LIMIT_HIGH : LIMIT_LOW;
+            yLimitState = yDir ? LIMIT_HIGH : LIMIT_LOW;
             Serial.println(F("Warning: Limit switch hit in Y direction"));
           }
           break;
         }
         case LIMIT_LOW:
         {
-          if (yLimitValue == HIGH && !flagsy) 
+          if (yLimitValue == HIGH && !yDir) 
           {
             // limit switch is high in same direction as motor movement
             yMove = false;
@@ -498,7 +515,7 @@ static void moveMotors(int xxx, int yyy)
         }
         case LIMIT_HIGH:
         {
-          if (yLimitValue == HIGH && flagsy)
+          if (yLimitValue == HIGH && yDir)
           {
             // limit switch is high in same direction as motor movement
             yMove = false;
@@ -524,13 +541,11 @@ static void moveMotors(int xxx, int yyy)
     if (xMove) 
     {
       digitalWrite(MOTOR_X_STEP_PIN, HIGH);
-      ctrstepx++;
     }
 
     if (yMove)
     {
       digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
-      ctrstepy++;
     }
 
     delayMicroseconds(STEP_SPEED);
@@ -538,9 +553,6 @@ static void moveMotors(int xxx, int yyy)
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
     delayMicroseconds(STEP_SPEED);
   } while (xMove || yMove);
-
-  xValue += (flagsx ? -1 : 1) * ctrstepx;
-  yValue += (flagsy ? -1 : 1) * ctrstepy;
 
   // turn off motors
   digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);
@@ -684,6 +696,70 @@ static void motorTask(void *pvParameters)
   }
 }
 
+/* //////////////// Interrupts //////////////// */
+
+void IRAM_ATTR encoderX_A_interrupt() 
+{
+  cli();
+  readXReg = GPIO_REG_READ(GPIO_IN_REG) &(ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER);
+  if (readXReg == (ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER) && aXFlag)
+  {
+    encoderXPosCur--;
+    //encoderXPosCur++;
+    bXFlag = 0;
+    aXFlag = 0;
+  }
+  else if (readXReg == ENCODER_X_A_REGISTER)
+    bXFlag = 1;
+  sei();
+}
+
+void IRAM_ATTR encoderX_B_interrupt() 
+{
+  cli();
+  readXReg = GPIO_REG_READ(GPIO_IN_REG) & (ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER);
+  if (readXReg == (ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER) && bXFlag)
+  {
+    encoderXPosCur++;
+    bXFlag = 0;
+    aXFlag = 0;
+  }
+  else if (readXReg == ENCODER_X_B_REGISTER)
+    aXFlag = 1;
+  sei();
+}
+
+void IRAM_ATTR encoderY_A_interrupt()
+{
+  cli();
+  readYReg = GPIO_REG_READ(GPIO_IN_REG) &(ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER);
+  if (readYReg == (ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER) && aYFlag)
+  {
+    encoderYPosCur--;
+    //encoderYPosCur++;
+    bYFlag = 0;
+    aYFlag = 0;
+  }
+  else if (readYReg == ENCODER_Y_A_REGISTER)
+    bYFlag = 1;
+  sei();
+}
+
+void IRAM_ATTR encoderY_B_interrupt()
+{
+  cli();
+  readYReg = GPIO_REG_READ(GPIO_IN_REG) & (ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER);
+  if (readYReg == (ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER) && bYFlag)
+  {
+    encoderYPosCur++;
+    bYFlag = 0;
+    aYFlag = 0;
+  }
+  else if (readYReg == ENCODER_Y_B_REGISTER)
+    aYFlag = 1;
+  sei();
+}
+
 /* //////////////// Arduino Sketch //////////////// */
 
 void setup()
@@ -700,6 +776,15 @@ void setup()
   pinMode(LIMIT_X_PIN, INPUT);
   pinMode(LIMIT_Y_PIN, INPUT);
   pinMode(MOTOR_XY_ENABLE_PIN, OUTPUT);
+  pinMode(ENCODER_X_A_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_X_B_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_Y_A_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_Y_B_PIN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(ENCODER_X_A_PIN), encoderX_A_interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_X_B_PIN), encoderX_B_interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_Y_A_PIN), encoderY_A_interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_Y_B_PIN), encoderY_B_interrupt, RISING);
 
   digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
   digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
