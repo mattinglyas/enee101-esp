@@ -363,8 +363,6 @@ static void resetMotors()
 
 static void moveMotors(int xxx, int yyy)
 {
-  // unsigned long ctrstepx = 0;
-  // unsigned long ctrstepy = 0;
   encoderXPosCur = 0;
   encoderYPosCur = 0;
 
@@ -683,7 +681,6 @@ void setup()
   pinMode(ENCODER_X_B_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCODER_X_A_PIN), encoderX_A_interrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(ENCODER_X_B_PIN), encoderX_B_interrupt, RISING);
-  
   pinMode(ENCODER_Y_A_PIN, INPUT_PULLUP);
   pinMode(ENCODER_Y_B_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCODER_Y_A_PIN), encoderY_A_interrupt, RISING);
@@ -703,31 +700,6 @@ void setup()
   digitalWrite(ONBOARD_LED_PIN, ledValue);
   Serial.println(digitalRead(LIMIT_X) == LOW);
   Serial.println(digitalRead(LIMIT_Y) == LOW);
-
-  // Serial.println(digitalRead(LIMIT_X_LOW) == LOW);
-  // Serial.println(digitalRead(LIMIT_X_HIGH) == LOW);
-  // Serial.println(digitalRead(LIMIT_Y_LOW) == LOW);
-  // Serial.println(digitalRead(LIMIT_Y_HIGH) == LOW);
-
-  // do
-  // {
-  //   if(digitalRead(LIMIT_X) == 0)
-  //     digitalWrite(MOTOR_X_STEP_PIN, HIGH);
-  //   if (digitalRead(LIMIT_Y) == 0)
-  //     digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
-  //   delayMicroseconds(STEP_SPEED);
-  //   digitalWrite(MOTOR_X_STEP_PIN, LOW);
-  //   digitalWrite(MOTOR_Y_STEP_PIN, LOW);
-  //   delayMicroseconds(STEP_SPEED);
-  // } while(digitalRead(LIMIT_X) == 0 && digitalRead(LIMIT_Y) == 0);
-  
-  // xValue = 0;
-  // yValue = 0;
-  
-  // xLimitFlag = 1;
-  // yLimitFlag = 1;
-
-  resetMotors();
   
   digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);   // motors turned off until input is given
 
@@ -761,12 +733,4 @@ void setup()
 void loop()
 {
   vTaskSuspend(NULL);
-  // if(encoderXPosOld != encoderXPosCur) {
-  //   encoderXPosOld = encoderXPosCur;
-  //   Serial.println(encoderXPosCur);
-  // }
-  // if(encoderYPosOld != encoderYPosCur) {
-  //   encoderYPosOld = encoderYPosCur;
-  //   Serial.println(encoderYPosCur);
-  // }
 }
