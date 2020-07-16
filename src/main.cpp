@@ -25,15 +25,22 @@
 #define MOTOR_Y_STEP_PIN 21
 #define MOTOR_Y_DIR_PIN 19
 
-#define LIMIT_X_LOW 25 // white wire
-#define LIMIT_X_HIGH 26 // yellow wire
-#define LIMIT_Y_LOW 12 // purple wire
-#define LIMIT_Y_HIGH 13 // orange wire
+#define LIMIT_X 12 // white wire
+#define LIMIT_Y 13 // orange wire 
 
-#define CLK_PIN 4
-#define DAT_PIN 0
+// #define LIMIT_X_LOW 25 // white wire
+// #define LIMIT_X_HIGH 26 // yellow wire
+// #define LIMIT_Y_LOW 12 // purple wire
+// #define LIMIT_Y_HIGH 13 // orange wire
+
+#define MOTOR_XY_ENABLE_PIN 4
 
 #define STEP_SPEED 100
+
+static byte xLimitFlag = 0;
+static byte yLimitFlag = 0;
+static byte xSwitchOld = 0;
+static byte ySwitchOld = 0;
 
 enum MotorState
 {
@@ -307,13 +314,14 @@ static void resetMotors()
 {
   digitalWrite(MOTOR_X_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
+  digitalWrite(MOTOR_XY_ENABLE_PIN, LOW); // turn on motors
 
   bool xLimit, yLimit;
 
   do
   {
-    xLimit = (digitalRead(LIMIT_X_LOW) == LOW);
-    yLimit = (digitalRead(LIMIT_Y_HIGH) == LOW);
+    xLimit = (digitalRead(LIMIT_X) == 0);
+    yLimit = (digitalRead(LIMIT_Y) == 0);
 
     if (xLimit)
     {
@@ -332,9 +340,7 @@ static void resetMotors()
   xValue = 0;
   yValue = 0;
 
-  // reset directional pins
-  digitalWrite(MOTOR_X_DIR_PIN, LOW);
-  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
+  digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);  // turn off motors
 }
 
 static void moveMotors(int xxx, int yyy)
@@ -345,6 +351,21 @@ static void moveMotors(int xxx, int yyy)
   bool flagsx = false; // assigning sign to x value input. false means positive (high); true means negative (low)
   bool flagsy = false; // assigning sign to y value input. false means positive (low); true means negative (high)
 
+  digitalWrite(MOTOR_XY_ENABLE_PIN, LOW); // turn on motors
+
+  xLimitFlag = 0;
+  yLimitFlag = 0;
+  bool xDirCurrent;
+  bool xDirOld = digitalRead(MOTOR_X_DIR_PIN);
+
+  bool yDirCurrent;
+  bool yDirOld = digitalRead(MOTOR_Y_DIR_PIN);
+
+  // Serial.print("old x dir pin:");
+  // Serial.println(xDirOld);
+  // Serial.print("old y dir pin:");
+  // Serial.println(yDirOld);
+
   if (xxx > 0) 
     digitalWrite(MOTOR_X_DIR_PIN, HIGH); // setting x motor direction according to input
   else
@@ -354,7 +375,7 @@ static void moveMotors(int xxx, int yyy)
     flagsx = true;
   }
 
-  if (yyy >= 0)
+  if (yyy > 0)
     digitalWrite(MOTOR_Y_DIR_PIN, LOW); // setting y motor direction according to input
   else
   {
@@ -363,17 +384,39 @@ static void moveMotors(int xxx, int yyy)
     flagsy = true;
   }
 
-  // assign directional limit switch pins
-  uint8_t xLimitSwitchPin = (flagsx ? LIMIT_X_LOW : LIMIT_X_HIGH);
-  uint8_t yLimitSwitchPin = (flagsy ? LIMIT_Y_HIGH : LIMIT_Y_LOW);
+  xDirCurrent = digitalRead(MOTOR_X_DIR_PIN);
+  yDirCurrent = digitalRead(MOTOR_Y_DIR_PIN);
+  // Serial.print("new x dir pin:");
+  // Serial.println(xDirCurrent);
+  // Serial.print("new y dir pin:");
+  // Serial.println(yDirCurrent);
 
+  // Serial.print("LIMIT X:");
+  // Serial.println(digitalRead(LIMIT_X));
+  // Serial.print("LIMIT Y:");
+  // Serial.println(digitalRead(LIMIT_Y));
+  // assign directional limit switch pins
+  // uint8_t xLimitSwitchPin = (flagsx ? LIMIT_X_LOW : LIMIT_X_HIGH);
+  // uint8_t yLimitSwitchPin = (flagsy ? LIMIT_Y_HIGH : LIMIT_Y_LOW);
+
+  if((xDirCurrent == xDirOld) && digitalRead(LIMIT_X))
+    xLimitFlag = 1;
+  else
+    xLimitFlag = 0;
+  if((yDirCurrent == yDirOld) && digitalRead(LIMIT_Y))
+    yLimitFlag = 1;
+  else
+    yLimitFlag = 0;
+  
   bool xMove, yMove;
 
   do
   {
     // check if motors can be moved
-    xMove = (ctrstepx <= xxx && digitalRead(xLimitSwitchPin) == LOW);
-    yMove = (ctrstepy <= yyy && digitalRead(yLimitSwitchPin) == LOW);
+    // xMove = (ctrstepx < xxx && digitalRead(LIMIT_X) == LOW && (xLimitFlag == 0));
+    // yMove = (ctrstepy < yyy && digitalRead(LIMIT_Y) == LOW && (yLimitFlag == 0));
+    xMove = (ctrstepx < xxx && (digitalRead(LIMIT_X) == LOW || xLimitFlag == 0));
+    yMove = (ctrstepy < yyy && (digitalRead(LIMIT_Y) == LOW || yLimitFlag == 0));
 
     // move in the x direction unless the limit switch is toggled 
     if (xMove)
@@ -397,9 +440,29 @@ static void moveMotors(int xxx, int yyy)
   xValue += (flagsx ? -1 : 1) * ctrstepx;
   yValue += (flagsy ? -1 : 1) * ctrstepy;
 
-  // reset directional pins
-  digitalWrite(MOTOR_X_DIR_PIN, LOW);
-  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
+  digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);  // turn off motors
+}
+
+void IRAM_ATTR xLimit_interrupt() {
+  cli();
+  byte xSwitchCurrent = digitalRead(LIMIT_X);
+  if(xSwitchCurrent == 1 && xSwitchOld == 0)
+    xLimitFlag = 1;
+  else
+    xLimitFlag = 0;
+  xSwitchOld = digitalRead(LIMIT_X);
+  sei();
+}
+
+void IRAM_ATTR yLimit_interrupt() {
+  cli();
+  byte ySwitchCurrent = digitalRead(LIMIT_Y);
+  if(ySwitchCurrent == 1 && ySwitchOld == 0)
+    yLimitFlag = 1;
+  else
+    yLimitFlag = 0;
+  ySwitchOld = digitalRead(LIMIT_Y);
+  sei();
 }
 
 /* //////////////// Tasks //////////////// */
@@ -553,12 +616,16 @@ void setup()
   pinMode(MOTOR_Y_DIR_PIN, OUTPUT);
   pinMode(MOTOR_Y_STEP_PIN, OUTPUT);
   pinMode(ONBOARD_LED_PIN, OUTPUT);
-  pinMode(CLK_PIN, INPUT);
-  pinMode(DAT_PIN, INPUT);
-  pinMode(LIMIT_X_LOW, INPUT);
-  pinMode(LIMIT_X_HIGH, INPUT);
-  pinMode(LIMIT_Y_LOW, INPUT);
-  pinMode(LIMIT_Y_HIGH, INPUT);
+  pinMode(MOTOR_XY_ENABLE_PIN, OUTPUT);
+  pinMode(LIMIT_X, INPUT);
+  pinMode(LIMIT_Y, INPUT);
+  // pinMode(LIMIT_X_LOW, INPUT);
+  // pinMode(LIMIT_X_HIGH, INPUT);
+  // pinMode(LIMIT_Y_LOW, INPUT);
+  // pinMode(LIMIT_Y_HIGH, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(LIMIT_X), xLimit_interrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(LIMIT_Y), yLimit_interrupt, FALLING);
 
   digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
   digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
@@ -566,13 +633,16 @@ void setup()
   digitalWrite(MOTOR_X_STEP_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+  digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH); // motors initially turned off
 
   digitalWrite(ONBOARD_LED_PIN, ledValue);
-  
-  Serial.println(digitalRead(LIMIT_X_LOW) == LOW);
-  Serial.println(digitalRead(LIMIT_X_HIGH) == LOW);
-  Serial.println(digitalRead(LIMIT_Y_LOW) == LOW);
-  Serial.println(digitalRead(LIMIT_Y_HIGH) == LOW);
+  Serial.println(digitalRead(LIMIT_X) == LOW);
+  Serial.println(digitalRead(LIMIT_Y) == LOW);
+
+  // Serial.println(digitalRead(LIMIT_X_LOW) == LOW);
+  // Serial.println(digitalRead(LIMIT_X_HIGH) == LOW);
+  // Serial.println(digitalRead(LIMIT_Y_LOW) == LOW);
+  // Serial.println(digitalRead(LIMIT_Y_HIGH) == LOW);
 
   Serial.begin(115200);
   Serial.println(F("ESP32 Device"));
