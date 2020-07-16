@@ -445,8 +445,6 @@ void IRAM_ATTR xLimit_interrupt() {
   byte xSwitchCurrent = digitalRead(LIMIT_X);
   if(xSwitchCurrent == 1 && xSwitchOld == 0)
     xLimitFlag = 1;
-  else
-    xLimitFlag = 0;
   xSwitchOld = digitalRead(LIMIT_X);
   sei();
 }
@@ -456,8 +454,6 @@ void IRAM_ATTR yLimit_interrupt() {
   byte ySwitchCurrent = digitalRead(LIMIT_Y);
   if(ySwitchCurrent == 1 && ySwitchOld == 0)
     yLimitFlag = 1;
-  else
-    yLimitFlag = 0;
   ySwitchOld = digitalRead(LIMIT_Y);
   sei();
 }
