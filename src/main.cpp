@@ -25,13 +25,10 @@
 #define MOTOR_Y_STEP_PIN 21
 #define MOTOR_Y_DIR_PIN 19
 
-#define LIMIT_X_LOW 25 // white wire
-#define LIMIT_X_HIGH 26 // yellow wire
-#define LIMIT_Y_LOW 12 // purple wire
-#define LIMIT_Y_HIGH 13 // orange wire
+#define MOTOR_XY_ENABLE_PIN 4
 
-#define CLK_PIN 4
-#define DAT_PIN 0
+#define LIMIT_X_PIN 12 // purple wire
+#define LIMIT_Y_PIN 13 // orange wire
 
 #define STEP_SPEED 100
 
@@ -40,6 +37,13 @@ enum MotorState
   MOTOR_IDLE = 0,
   MOTOR_MOVE = 1,
   MOTOR_RESET = 2
+};
+
+enum LimitState
+{
+  LIMIT_NONE = 0,
+  LIMIT_LOW = 1,
+  LIMIT_HIGH = 2
 };
 
 struct MotorCommand
@@ -78,6 +82,10 @@ static bool ledValue = false;
 // stored x and y values
 static long yValue = 0;
 static long xValue = 0;
+
+// states for limit switches
+static enum LimitState xLimitState = LIMIT_NONE;
+static enum LimitState yLimitState = LIMIT_NONE;
 
 // shared resource for hardware and comms thread to communicate values
 static ArrayQueue<MotorCommand> motorCommandQueue = ArrayQueue<MotorCommand>(COMMAND_BUFFER_LEN);
@@ -305,40 +313,65 @@ static double getUltrasonicDistanceInInches(const UltrasonicSensor* s)
 
 static void resetMotors()
 {
+  // turn on motors
+  digitalWrite(MOTOR_XY_ENABLE_PIN, LOW);
+
   digitalWrite(MOTOR_X_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, HIGH);
 
-  bool xLimit, yLimit;
-
+  bool xMove, yMove, xLimit, yLimit;
+  // move the motors until the limit switches are hit
   do
   {
-    xLimit = (digitalRead(LIMIT_X_LOW) == LOW);
-    yLimit = (digitalRead(LIMIT_Y_HIGH) == LOW);
+    xLimit = (digitalRead(LIMIT_X_PIN) == LOW);
+    yLimit = (digitalRead(LIMIT_Y_PIN) == LOW);
+    xMove = (xLimitState == LIMIT_HIGH || xLimit);
+    yMove = (yLimitState == LIMIT_LOW || yLimit);
 
-    if (xLimit)
+    // reset state if opposite side limit switch hit
+    if (xLimit) 
+    {
+      xLimitState = LIMIT_NONE;
+    }
+
+    if (yLimit) 
+    {
+      yLimitState = LIMIT_NONE;
+    }
+
+    // move motors if needed
+    if (xMove)
     {
       digitalWrite(MOTOR_X_STEP_PIN, HIGH);
     }
-    if (yLimit)
+
+    if (yMove)
     {
       digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
     }
+
     delayMicroseconds(STEP_SPEED);
     digitalWrite(MOTOR_X_STEP_PIN, LOW);
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
     delayMicroseconds(STEP_SPEED);
-  } while (xLimit || yLimit);
+  } while (xMove || yMove);
+
+  // set limit switch state
+  xLimitState = LIMIT_LOW;
+  yLimitState = LIMIT_HIGH;
 
   xValue = 0;
   yValue = 0;
 
-  // reset directional pins
-  digitalWrite(MOTOR_X_DIR_PIN, LOW);
-  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
+  // turn off motors
+  digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);
 }
 
 static void moveMotors(int xxx, int yyy)
 {
+  // turn on motors
+  digitalWrite(MOTOR_XY_ENABLE_PIN, LOW);
+
   unsigned long ctrstepx = 0;
   unsigned long ctrstepy = 0;
 
@@ -363,31 +396,143 @@ static void moveMotors(int xxx, int yyy)
     flagsy = true;
   }
 
-  // assign directional limit switch pins
-  uint8_t xLimitSwitchPin = (flagsx ? LIMIT_X_LOW : LIMIT_X_HIGH);
-  uint8_t yLimitSwitchPin = (flagsy ? LIMIT_Y_HIGH : LIMIT_Y_LOW);
-
-  bool xMove, yMove;
+  // flag for if motors can be moved in this direction
+  bool xMove = (ctrstepx < xxx);
+  bool yMove = (ctrstepy < yyy);
 
   do
   {
-    // check if motors can be moved
-    xMove = (ctrstepx <= xxx && digitalRead(xLimitSwitchPin) == LOW);
-    yMove = (ctrstepy <= yyy && digitalRead(yLimitSwitchPin) == LOW);
+    // check if steps are still left in the motor move
+    xMove = xMove && (ctrstepx < xxx);
+    yMove = yMove && (ctrstepy < yyy);
 
-    // move in the x direction unless the limit switch is toggled 
+    // advance x motor state machine if steps are still left and can still move
     if (xMove)
+    {
+      int xLimitValue = digitalRead(LIMIT_X_PIN);
+      switch (xLimitState) 
+      {
+        case LIMIT_NONE:
+        {
+          if (xLimitValue == HIGH)
+          {
+            // limit switch hit in same direction as motor movement
+            xMove = false;
+            xLimitState = flagsx ? LIMIT_LOW : LIMIT_HIGH;
+            Serial.println(F("Warning: Limit switch hit in X direction"));
+          }
+          break;
+        }
+        case LIMIT_LOW:
+        {
+          if (xLimitValue == HIGH && flagsx) 
+          {
+            // limit switch is high in same direction as motor movement
+            xMove = false;
+            Serial.println(F("Warning: Motors moved against limit switch in X direction"));
+          }
+          else if (xLimitValue == LOW)
+          {
+            // limit switch is low; reset state
+            xLimitState = LIMIT_NONE;
+            Serial.println(F("Warning: Motors moved away from limit switch in X direction"));
+          }
+          break;
+        }
+        case LIMIT_HIGH:
+        {
+          if (xLimitValue == HIGH && !flagsx)
+          {
+            // limit switch is high in same direction as motor movement
+            xMove = false;
+            Serial.println(F("Warning: Motors moved against limit switch in X direction"));
+          }
+          else if (xLimitValue == LOW)
+          {
+            // limit switch is low; reset state
+            xLimitState = LIMIT_NONE;
+            Serial.println(F("Warning: Motors moved away from limit switch in X direction"));
+          }
+          break;
+        }
+        default:
+        {
+          // should not get here
+          break;
+        }
+      }
+    }
+
+    // advance y motor state machine if steps are still left and can still move
+    if (yMove)
+    {
+      int yLimitValue = digitalRead(LIMIT_Y_PIN);
+      switch (yLimitState) 
+      {
+        case LIMIT_NONE:
+        {
+          if (yLimitValue == HIGH)
+          {
+            // limit switch hit in same direction as motor movement
+            yMove = false;
+            yLimitState = flagsy ? LIMIT_HIGH : LIMIT_LOW;
+            Serial.println(F("Warning: Limit switch hit in Y direction"));
+          }
+          break;
+        }
+        case LIMIT_LOW:
+        {
+          if (yLimitValue == HIGH && !flagsy) 
+          {
+            // limit switch is high in same direction as motor movement
+            yMove = false;
+            Serial.println(F("Warning: Motors moved against limit switch in Y direction"));
+          }
+          else if (yLimitValue == LOW)
+          {
+            // limit switch is low; reset state
+            yLimitState = LIMIT_NONE;
+            Serial.println(F("Warning: Motors moved away from limit switch in Y direction"));
+          }
+          break;
+        }
+        case LIMIT_HIGH:
+        {
+          if (yLimitValue == HIGH && flagsy)
+          {
+            // limit switch is high in same direction as motor movement
+            yMove = false;
+            Serial.println(F("Warning: Motors moved against limit switch in Y direction"));
+          }
+          else if (yLimitValue == LOW)
+          {
+            // limit switch is low; reset state
+            yLimitState = LIMIT_NONE;
+            Serial.println(F("Warning: Motors moved away from limit switch in Y direction"));
+          }
+          break;
+        }
+        default:
+        {
+          // should not get here
+          break;
+        }
+      }
+    }
+
+    // move motors 
+    if (xMove) 
     {
       digitalWrite(MOTOR_X_STEP_PIN, HIGH);
       ctrstepx++;
     }
 
-    // move in the y direction unless the limit switch is toggled 
     if (yMove)
     {
       digitalWrite(MOTOR_Y_STEP_PIN, HIGH);
       ctrstepy++;
     }
+
     delayMicroseconds(STEP_SPEED);
     digitalWrite(MOTOR_X_STEP_PIN, LOW);
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
@@ -397,9 +542,8 @@ static void moveMotors(int xxx, int yyy)
   xValue += (flagsx ? -1 : 1) * ctrstepx;
   yValue += (flagsy ? -1 : 1) * ctrstepy;
 
-  // reset directional pins
-  digitalWrite(MOTOR_X_DIR_PIN, LOW);
-  digitalWrite(MOTOR_Y_DIR_PIN, LOW);
+  // turn off motors
+  digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);
 }
 
 /* //////////////// Tasks //////////////// */
@@ -553,12 +697,9 @@ void setup()
   pinMode(MOTOR_Y_DIR_PIN, OUTPUT);
   pinMode(MOTOR_Y_STEP_PIN, OUTPUT);
   pinMode(ONBOARD_LED_PIN, OUTPUT);
-  pinMode(CLK_PIN, INPUT);
-  pinMode(DAT_PIN, INPUT);
-  pinMode(LIMIT_X_LOW, INPUT);
-  pinMode(LIMIT_X_HIGH, INPUT);
-  pinMode(LIMIT_Y_LOW, INPUT);
-  pinMode(LIMIT_Y_HIGH, INPUT);
+  pinMode(LIMIT_X_PIN, INPUT);
+  pinMode(LIMIT_Y_PIN, INPUT);
+  pinMode(MOTOR_XY_ENABLE_PIN, OUTPUT);
 
   digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
   digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
@@ -566,13 +707,9 @@ void setup()
   digitalWrite(MOTOR_X_STEP_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_STEP_PIN, LOW);
+  digitalWrite(MOTOR_XY_ENABLE_PIN, HIGH);
 
   digitalWrite(ONBOARD_LED_PIN, ledValue);
-  
-  Serial.println(digitalRead(LIMIT_X_LOW) == LOW);
-  Serial.println(digitalRead(LIMIT_X_HIGH) == LOW);
-  Serial.println(digitalRead(LIMIT_Y_LOW) == LOW);
-  Serial.println(digitalRead(LIMIT_Y_HIGH) == LOW);
 
   Serial.begin(115200);
   Serial.println(F("ESP32 Device"));
