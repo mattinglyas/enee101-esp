@@ -428,11 +428,6 @@ static void moveMotors(long xxx, long yyy)
     xMove = xMove && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
     yMove = yMove && (yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur));
 
-    Serial.print(F("Info: Current encoder X/Y positions :"));
-    Serial.print(encoderXPosCur);
-    Serial.print(",");
-    Serial.println(encoderYPosCur);
-
     // advance x motor state machine if steps are still left and can still move
     if (xMove)
     {
@@ -714,8 +709,7 @@ void IRAM_ATTR encoderX_A_interrupt()
   readXReg = GPIO_REG_READ(GPIO_IN_REG) &(ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER);
   if (readXReg == (ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER) && aXFlag)
   {
-    encoderXPosCur--;
-    //encoderXPosCur++;
+    encoderXPosCur++;
     bXFlag = 0;
     aXFlag = 0;
   }
@@ -730,7 +724,7 @@ void IRAM_ATTR encoderX_B_interrupt()
   readXReg = GPIO_REG_READ(GPIO_IN_REG) & (ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER);
   if (readXReg == (ENCODER_X_A_REGISTER + ENCODER_X_B_REGISTER) && bXFlag)
   {
-    encoderXPosCur++;
+    encoderXPosCur--;
     bXFlag = 0;
     aXFlag = 0;
   }
@@ -745,8 +739,7 @@ void IRAM_ATTR encoderY_A_interrupt()
   readYReg = GPIO_REG_READ(GPIO_IN_REG) &(ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER);
   if (readYReg == (ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER) && aYFlag)
   {
-    encoderYPosCur--;
-    //encoderYPosCur++;
+    encoderYPosCur++;
     bYFlag = 0;
     aYFlag = 0;
   }
@@ -761,7 +754,7 @@ void IRAM_ATTR encoderY_B_interrupt()
   readYReg = GPIO_REG_READ(GPIO_IN_REG) & (ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER);
   if (readYReg == (ENCODER_Y_A_REGISTER + ENCODER_Y_B_REGISTER) && bYFlag)
   {
-    encoderYPosCur++;
+    encoderYPosCur--;
     bYFlag = 0;
     aYFlag = 0;
   }
