@@ -393,6 +393,11 @@ static void moveMotors(long xxx, long yyy)
   long targetEncoderXPos = encoderXPosCur + xxx;
   long targetEncoderYPos = encoderYPosCur + yyy;
 
+  Serial.print(F("Info: Calculated target encoder X/Y values as: "));
+  Serial.print(targetEncoderXPos);
+  Serial.print(",");
+  Serial.println(targetEncoderYPos);
+
   bool xDir = false; // assigning sign to x value input. false means positive (high); true means negative (low)
   bool yDir = false; // assigning sign to y value input. false means positive (high); true means negative (low)
 
@@ -414,14 +419,19 @@ static void moveMotors(long xxx, long yyy)
   }
 
   // flag for if motors need to be moved in this direction
-  bool xMove = xDir ? (targetEncoderXPos > encoderXPosCur) : (targetEncoderXPos < encoderXPosCur);
-  bool yMove = yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur);
+  bool xMove = xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur);
+  bool yMove = yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur);
 
   do
   {
     // check if steps are still left in the motor move
-    xMove = xMove && (xDir ? (targetEncoderXPos > encoderXPosCur) : (targetEncoderXPos < encoderXPosCur));
-    yMove = yMove && (yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur));
+    xMove = xMove && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
+    yMove = yMove && (yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur));
+
+    Serial.print(F("Info: Current encoder X/Y positions :"));
+    Serial.print(encoderXPosCur);
+    Serial.print(",");
+    Serial.println(encoderYPosCur);
 
     // advance x motor state machine if steps are still left and can still move
     if (xMove)
