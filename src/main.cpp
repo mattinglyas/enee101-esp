@@ -414,14 +414,14 @@ static void moveMotors(long xxx, long yyy)
   }
 
   // flag for if motors need to be moved in this direction
-  bool xMove = xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur);
-  bool yMove = yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur);
+  bool xMove = xDir ? (targetEncoderXPos > encoderXPosCur) : (targetEncoderXPos < encoderXPosCur);
+  bool yMove = yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur);
 
   do
   {
     // check if steps are still left in the motor move
-    xMove = xMove && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
-    yMove = yMove && (yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur));
+    xMove = xMove && (xDir ? (targetEncoderXPos > encoderXPosCur) : (targetEncoderXPos < encoderXPosCur));
+    yMove = yMove && (yDir ? (targetEncoderYPos > encoderYPosCur) : (targetEncoderYPos < encoderYPosCur));
 
     // advance x motor state machine if steps are still left and can still move
     if (xMove)
