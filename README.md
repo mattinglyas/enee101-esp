@@ -165,3 +165,21 @@ None
     "payload" : {}
 }
 ```
+
+### Clear Motor Queue
+
+Removes all queued move and reset commands from device's internal queue
+
+#### Payload
+
+None
+
+#### Example Message
+
+```
+{
+    "methodName": "clear",
+    "responseTimeoutInSeconds": 200,
+    "payload" : {}
+}
+```
