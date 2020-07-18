@@ -270,6 +270,13 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
     }
     xSemaphoreGive(motorCommandMutex);
   }
+  else if (strcmp(methodName, "clear") == 0)
+  {
+    Serial.println(F("Info: Clearing motor command queue"));
+    xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
+    motorCommandQueue.clear();
+    xSemaphoreGive(motorCommandMutex);
+  }
   else
   {
     result = 404;
