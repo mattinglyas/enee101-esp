@@ -39,6 +39,8 @@
 #define ENCODER_Y_B_PIN 14  // DATA Y
 #define ENCODER_Y_B_REGISTER 0x4000       // register for GPIO14
 
+#define INTERRUPT_DEBOUNCE_TIME 500 //us 
+
 #define STEP_SPEED 100
 
 enum MotorCommandType
@@ -88,7 +90,9 @@ static bool messageSending = true;
 static uint64_t send_interval_ms;
 static bool ledValue = false;
 
-// states for limit switches
+// values for limit switches
+long xLimitDebounceTimer = 0;
+long yLimitDebounceTimer = 0;
 static volatile enum LimitState xMoveState = LIMIT_NONE; // updates on every move with direction of limit switch should it be hit
 static volatile enum LimitState yMoveState = LIMIT_NONE;
 static volatile enum LimitState xLimitState = LIMIT_NONE; // storage for state of limit switch
@@ -358,12 +362,13 @@ static void resetMotors()
   xMoveState = LIMIT_LOW;
   yMoveState = LIMIT_LOW;
 
-  bool xMove, yMove;
+  bool xMove = true;
+  bool yMove = true;
   // move the motors until the limit switches are hit
   do
   {
-    xMove = (xLimitState != LIMIT_LOW);
-    yMove = (yLimitState != LIMIT_LOW);
+    xMove = xMove && (xLimitState != LIMIT_LOW);
+    yMove = yMove && (yLimitState != LIMIT_LOW);
 
     // move motors if needed
     if (xMove)
@@ -666,38 +671,52 @@ void IRAM_ATTR encoderY_B_interrupt()
 void IRAM_ATTR limitX_interrupt() 
 {
   cli();
+  long cTime = xTaskGetTickCount();
   int val = digitalRead(LIMIT_X_PIN);
-  if (val) 
+
+  if (cTime - xLimitDebounceTimer > INTERRUPT_DEBOUNCE_TIME)
   {
-    // limit switch pulled high (save direction of last move as limit switch state)
-    xLimitState = xMoveState;
-    Serial.println(F("Info: Limit switch hit in X direction"));
+    if (val) 
+    {
+      // limit switch pulled high (save direction of last move as limit switch state)
+      xLimitState = xMoveState;
+      Serial.println(F("Info: Limit switch hit in X direction"));
+    }
+    else 
+    {
+      // pulled low (none are toggled)
+      xLimitState = LIMIT_NONE; 
+      Serial.println(F("Info: Limit switch left in X direction"));
+    }
   }
-  else 
-  {
-    // pulled low (none are toggled)
-    xLimitState = LIMIT_NONE; 
-    Serial.println(F("Info: Limit switch left in X direction"));
-  }
+
+  xLimitDebounceTimer = cTime;
   sei();
 }
 
 void IRAM_ATTR limitY_interrupt() 
 {
   cli();
+  long cTime = xTaskGetTickCount();
   int val = digitalRead(LIMIT_Y_PIN);
-  if (val) 
+  
+  if (cTime - yLimitDebounceTimer > INTERRUPT_DEBOUNCE_TIME)
   {
-    // limit switch pulled high (save direction of last move as limit switch state)
-    yLimitState = yMoveState;
-    Serial.println(F("Info: Limit switch hit in Y direction"));
+    if (val) 
+    {
+      // limit switch pulled high (save direction of last move as limit switch state)
+      yLimitState = yMoveState;
+      Serial.println(F("Info: Limit switch hit in Y direction"));
+    }
+    else 
+    {
+      // pulled low (none are toggled)
+      yLimitState = LIMIT_NONE; 
+      Serial.println(F("Info: Limit switch left in Y direction"));
+    }
   }
-  else 
-  {
-    // pulled low (none are toggled)
-    yLimitState = LIMIT_NONE; 
-    Serial.println(F("Info: Limit switch left in Y direction"));
-  }
+
+  yLimitDebounceTimer = cTime;
   sei();
 }
 
@@ -728,7 +747,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(ENCODER_Y_A_PIN), encoderY_A_interrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(ENCODER_Y_B_PIN), encoderY_B_interrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(LIMIT_X_PIN), limitX_interrupt, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(LIMIT_Y_PIN), limitX_interrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(LIMIT_Y_PIN), limitY_interrupt, CHANGE);
 
   digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
   digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
