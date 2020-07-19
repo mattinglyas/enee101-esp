@@ -277,6 +277,17 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
     motorCommandQueue.clear();
     xSemaphoreGive(motorCommandMutex);
   }
+  else if (strcmp(methodName, "clearReset") == 0) 
+  {
+    Serial.println(F("Info: Clearing motor command queue and resetting motor position"));
+    xSemaphoreTake(motorCommandMutex, portMAX_DELAY);
+    motorCommandQueue.clear();
+
+    struct MotorCommand newCommand;
+    newCommand.commandType = MOTOR_RESET;
+    motorCommandQueue.push(newCommand);
+    xSemaphoreGive(motorCommandMutex);
+  } 
   else
   {
     result = 404;
