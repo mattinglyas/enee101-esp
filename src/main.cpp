@@ -39,7 +39,7 @@
 #define ENCODER_Y_B_PIN 14  // DATA Y
 #define ENCODER_Y_B_REGISTER 0x4000       // register for GPIO14
 
-#define INTERRUPT_DEBOUNCE_TIME 500 //us 
+#define INTERRUPT_DEBOUNCE_TIME 500 //ms 
 
 #define STEP_SPEED 100
 
