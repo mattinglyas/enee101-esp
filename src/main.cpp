@@ -671,11 +671,13 @@ void IRAM_ATTR limitX_interrupt()
   {
     // limit switch pulled high (save direction of last move as limit switch state)
     xLimitState = xMoveState;
+    Serial.println(F("Info: Limit switch hit in X direction"));
   }
   else 
   {
     // pulled low (none are toggled)
     xLimitState = LIMIT_NONE; 
+    Serial.println(F("Info: Limit switch left in X direction"));
   }
   sei();
 }
@@ -688,11 +690,13 @@ void IRAM_ATTR limitY_interrupt()
   {
     // limit switch pulled high (save direction of last move as limit switch state)
     yLimitState = yMoveState;
+    Serial.println(F("Info: Limit switch hit in Y direction"));
   }
   else 
   {
     // pulled low (none are toggled)
     yLimitState = LIMIT_NONE; 
+    Serial.println(F("Info: Limit switch left in Y direction"));
   }
   sei();
 }
@@ -711,8 +715,8 @@ void setup()
   pinMode(MOTOR_Y_DIR_PIN, OUTPUT);
   pinMode(MOTOR_Y_STEP_PIN, OUTPUT);
   pinMode(ONBOARD_LED_PIN, OUTPUT);
-  pinMode(LIMIT_X_PIN, INPUT);
-  pinMode(LIMIT_Y_PIN, INPUT);
+  pinMode(LIMIT_X_PIN, INPUT_PULLUP);
+  pinMode(LIMIT_Y_PIN, INPUT_PULLUP);
   pinMode(MOTOR_XY_ENABLE_PIN, OUTPUT);
   pinMode(ENCODER_X_A_PIN, INPUT_PULLUP);
   pinMode(ENCODER_X_B_PIN, INPUT_PULLUP);
