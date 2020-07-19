@@ -41,7 +41,7 @@
 
 #define STEP_SPEED 100
 
-enum MotorState
+enum MotorCommandType
 {
   MOTOR_IDLE = 0,
   MOTOR_MOVE = 1,
@@ -57,7 +57,7 @@ enum LimitState
 
 struct MotorCommand
 {
-  enum MotorState commandType;
+  enum MotorCommandType commandType;
   long x;
   long y;
 };
@@ -89,12 +89,14 @@ static uint64_t send_interval_ms;
 static bool ledValue = false;
 
 // states for limit switches
-static enum LimitState xLimitState = LIMIT_NONE;
-static enum LimitState yLimitState = LIMIT_NONE;
+static volatile enum LimitState xMoveState = LIMIT_NONE; // updates on every move with direction of limit switch should it be hit
+static volatile enum LimitState yMoveState = LIMIT_NONE;
+static volatile enum LimitState xLimitState = LIMIT_NONE; // storage for state of limit switch
+static volatile enum LimitState yLimitState = LIMIT_NONE;
 
 // shared resource for hardware and comms thread to communicate values
 static ArrayQueue<MotorCommand> motorCommandQueue = ArrayQueue<MotorCommand>(COMMAND_BUFFER_LEN);
-static enum MotorState currentMotorState;
+static enum MotorCommandType currentMotorState;
 SemaphoreHandle_t motorCommandMutex;
 
 // task handlers
@@ -353,25 +355,15 @@ static void resetMotors()
   digitalWrite(MOTOR_X_DIR_PIN, LOW);
   digitalWrite(MOTOR_Y_DIR_PIN, LOW);
 
-  bool xMove, yMove, xLimit, yLimit;
+  xMoveState = LIMIT_LOW;
+  yMoveState = LIMIT_LOW;
+
+  bool xMove, yMove;
   // move the motors until the limit switches are hit
   do
   {
-    xLimit = (digitalRead(LIMIT_X_PIN) == LOW);
-    yLimit = (digitalRead(LIMIT_Y_PIN) == LOW);
-    xMove = (xLimitState == LIMIT_HIGH || xLimit);
-    yMove = (yLimitState == LIMIT_HIGH || yLimit);
-
-    // reset state if opposite side limit switch hit
-    if (xLimit) 
-    {
-      xLimitState = LIMIT_NONE;
-    }
-
-    if (yLimit) 
-    {
-      yLimitState = LIMIT_NONE;
-    }
+    xMove = (xLimitState != LIMIT_LOW);
+    yMove = (yLimitState != LIMIT_LOW);
 
     // move motors if needed
     if (xMove)
@@ -389,10 +381,6 @@ static void resetMotors()
     digitalWrite(MOTOR_Y_STEP_PIN, LOW);
     delayMicroseconds(STEP_SPEED);
   } while (xMove || yMove);
-
-  // set limit switch state
-  xLimitState = LIMIT_LOW;
-  yLimitState = LIMIT_LOW;
 
   // reset encoder position
   encoderXPosCur = 0;
@@ -420,20 +408,28 @@ static void moveMotors(long xxx, long yyy)
   bool yDir = false; // assigning sign to y value input. false means positive (high); true means negative (low)
 
   // setting x motor direction according to input
-  if (xxx >= 0) 
+  if (xxx > 0) 
+  {
     digitalWrite(MOTOR_X_DIR_PIN, HIGH); 
-  else
+    xMoveState = LIMIT_HIGH;
+  }
+  else if (xxx < 0)
   {
     digitalWrite(MOTOR_X_DIR_PIN, LOW); 
     xDir = true;
+    xMoveState = LIMIT_LOW;
   }
 
-  if (yyy >= 0)
+  if (yyy > 0)
+  {
     digitalWrite(MOTOR_Y_DIR_PIN, HIGH); 
-  else
+    yMoveState = LIMIT_HIGH;
+  }
+  else if (yyy < 0)
   {
     digitalWrite(MOTOR_Y_DIR_PIN, LOW); 
     yDir = true; 
+    yMoveState = LIMIT_LOW;
   }
 
   // flag for if motors need to be moved in this direction
@@ -443,122 +439,8 @@ static void moveMotors(long xxx, long yyy)
   do
   {
     // check if steps are still left in the motor move
-    xMove = xMove && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
-    yMove = yMove && (yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur));
-
-    // advance x motor state machine if steps are still left and can still move
-    if (xMove)
-    {
-      int xLimitValue = digitalRead(LIMIT_X_PIN);
-      switch (xLimitState) 
-      {
-        case LIMIT_NONE:
-        {
-          if (xLimitValue == HIGH)
-          {
-            // limit switch hit in same direction as motor movement
-            xMove = false;
-            xLimitState = xDir ? LIMIT_LOW : LIMIT_HIGH;
-            Serial.println(F("Warning: Limit switch hit in X direction"));
-          }
-          break;
-        }
-        case LIMIT_LOW:
-        {
-          if (xLimitValue == HIGH && xDir) 
-          {
-            // limit switch is high in same direction as motor movement
-            xMove = false;
-            Serial.println(F("Warning: Motors moved against limit switch in X direction"));
-          }
-          else if (xLimitValue == LOW)
-          {
-            // limit switch is low; reset state
-            xLimitState = LIMIT_NONE;
-            Serial.println(F("Warning: Motors moved away from limit switch in X direction"));
-          }
-          break;
-        }
-        case LIMIT_HIGH:
-        {
-          if (xLimitValue == HIGH && !xDir)
-          {
-            // limit switch is high in same direction as motor movement
-            xMove = false;
-            Serial.println(F("Warning: Motors moved against limit switch in X direction"));
-          }
-          else if (xLimitValue == LOW)
-          {
-            // limit switch is low; reset state
-            xLimitState = LIMIT_NONE;
-            Serial.println(F("Warning: Motors moved away from limit switch in X direction"));
-          }
-          break;
-        }
-        default:
-        {
-          // should not get here
-          break;
-        }
-      }
-    }
-
-    // advance y motor state machine if steps are still left and can still move
-    if (yMove)
-    {
-      int yLimitValue = digitalRead(LIMIT_Y_PIN);
-      switch (yLimitState) 
-      {
-        case LIMIT_NONE:
-        {
-          if (yLimitValue == HIGH)
-          {
-            // limit switch hit in same direction as motor movement
-            yMove = false;
-            yLimitState = yDir ? LIMIT_LOW : LIMIT_HIGH;
-            Serial.println(F("Warning: Limit switch hit in Y direction"));
-          }
-          break;
-        }
-        case LIMIT_LOW:
-        {
-          if (yLimitValue == HIGH && yDir) 
-          {
-            // limit switch is high in same direction as motor movement
-            yMove = false;
-            Serial.println(F("Warning: Motors moved against limit switch in Y direction"));
-          }
-          else if (yLimitValue == LOW)
-          {
-            // limit switch is low; reset state
-            yLimitState = LIMIT_NONE;
-            Serial.println(F("Warning: Motors moved away from limit switch in Y direction"));
-          }
-          break;
-        }
-        case LIMIT_HIGH:
-        {
-          if (yLimitValue == HIGH && !yDir)
-          {
-            // limit switch is high in same direction as motor movement
-            yMove = false;
-            Serial.println(F("Warning: Motors moved against limit switch in Y direction"));
-          }
-          else if (yLimitValue == LOW)
-          {
-            // limit switch is low; reset state
-            yLimitState = LIMIT_NONE;
-            Serial.println(F("Warning: Motors moved away from limit switch in Y direction"));
-          }
-          break;
-        }
-        default:
-        {
-          // should not get here
-          break;
-        }
-      }
-    }
+    xMove = xMove && xMoveState != xLimitState && (xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur));
+    yMove = yMove && yMoveState != yLimitState && (yDir ? (targetEncoderYPos < encoderYPosCur) : (targetEncoderYPos > encoderYPosCur));
 
     // move motors 
     if (xMove) 
@@ -781,6 +663,41 @@ void IRAM_ATTR encoderY_B_interrupt()
   sei();
 }
 
+void IRAM_ATTR limitX_interrupt() 
+{
+  cli();
+  int val = digitalRead(LIMIT_X_PIN);
+  if (val) 
+  {
+    // limit switch pulled high (save direction of last move as limit switch state)
+    xLimitState = xMoveState;
+  }
+  else 
+  {
+    // pulled low (none are toggled)
+    xLimitState = LIMIT_NONE; 
+  }
+  sei();
+}
+
+void IRAM_ATTR limitY_interrupt() 
+{
+  cli();
+  int val = digitalRead(LIMIT_Y_PIN);
+  if (val) 
+  {
+    // limit switch pulled high (save direction of last move as limit switch state)
+    yLimitState = yMoveState;
+  }
+  else 
+  {
+    // pulled low (none are toggled)
+    yLimitState = LIMIT_NONE; 
+  }
+  sei();
+}
+
+
 /* //////////////// Arduino Sketch //////////////// */
 
 void setup()
@@ -806,6 +723,8 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(ENCODER_X_B_PIN), encoderX_B_interrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(ENCODER_Y_A_PIN), encoderY_A_interrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(ENCODER_Y_B_PIN), encoderY_B_interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(LIMIT_X_PIN), limitX_interrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(LIMIT_Y_PIN), limitX_interrupt, CHANGE);
 
   digitalWrite(ULTRASOUND_X_TRIG_PIN, LOW);
   digitalWrite(ULTRASOUND_Y_TRIG_PIN, LOW);
