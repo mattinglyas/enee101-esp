@@ -5,9 +5,9 @@
 #include "FreeRTOS.h"
 #include "AzureIotHub.h"
 #include "Esp32MQTTClient.h"
-#include "config.h"
+#include "Config.h"
 
-#define MESSAGE_MAX_LEN 2048 // size of message buffers
+#define MESSAGE_MAX_LEN 16384 // size of message buffers
 #define COMMAND_BUFFER_LEN 256  // local command queue max length
 
 #define WIFI_TIMEOUT_MS 10000 // timeout for connecting to wifi network
@@ -97,7 +97,6 @@ volatile byte aXFlag = 0;
 volatile byte bXFlag = 0;
 volatile long encoderXPosCur = 0;
 volatile unsigned long readXReg = 0;
-
 volatile byte aYFlag = 0;
 volatile byte bYFlag = 0;
 volatile long encoderYPosCur = 0;
@@ -238,7 +237,10 @@ static int deviceMethodCallback(const char *methodName, const unsigned char *pay
     }
     else
     {
-      Serial.println(F("Warning: Received improperly formatted moveArray command; discarding"));
+      Serial.print(F("Warning: Received improperly formatted moveArray command. X array is length "));
+      Serial.print(arraySizeX);
+      Serial.print(F(" and Y array is length "));
+      Serial.println(arraySizeY);
       result = 400;
     }
   }
@@ -346,7 +348,7 @@ static void resetMotors()
 
   bool xMove = true;
   bool yMove = true;
-  
+
   // move the motors until the limit switches are hit
   do
   {
@@ -389,7 +391,7 @@ static void moveMotors(long xxx, long yyy)
 
   Serial.print(F("Info: Calculated target encoder X/Y values as: "));
   Serial.print(targetEncoderXPos);
-  Serial.print(",");
+  Serial.print(F(","));
   Serial.println(targetEncoderYPos);
 
   bool xDir = false; // assigning sign to x value input. false means positive (high); true means negative (low)
@@ -411,6 +413,9 @@ static void moveMotors(long xxx, long yyy)
     digitalWrite(MOTOR_Y_DIR_PIN, LOW); 
     yDir = true; 
   }
+
+  // sleep task for a bit to make sure direction is set
+  vTaskDelay(1);
 
   // flag for if motors need to be moved in this direction
   bool xMove = xDir ? (targetEncoderXPos < encoderXPosCur) : (targetEncoderXPos > encoderXPosCur);
@@ -577,6 +582,8 @@ static void motorTask(void *pvParameters)
           break;
         }
       }
+
+      vTaskDelay(100);
     }
 
     currentMotorState = MOTOR_IDLE;
