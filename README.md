@@ -29,7 +29,7 @@ These steps assume that there is a functional Azure IoT Hub and device already s
 
 1. Go to Azure IoT Hub and go to the "IoT Devices" tab
 2. Click on the device name that you wish to assign
-3. Copy the primary connection string or secondary connection string into the CONFIG_CONNECTION_STRING define in config.h
+3. Copy the primary connection string or secondary connection string into the CONFIG_CONNECTION_STRING define in Config.h
 4. Add WiFi connection details to CONFIG_WIFI_NAME and CONFIG_WIFI_PASSWORD
 
 ## Direct Methods
