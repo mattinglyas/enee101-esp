@@ -127,7 +127,7 @@ Signed integer value associated with "x" and "y" to be used as the amount of ste
 }
 ```
 
-### moveArray
+### Array Move
 
 Causes servo motors to execute several move commands in order
 
