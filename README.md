@@ -20,7 +20,7 @@ Designed for the ENEE101 Covid19 Response Project.
 
 1. Download main.cpp and rename to main.ino
 2. Copy the folders "ArduinoJson", "ArrayQueue", "ESP32 Azure IoT Arduino" and "FreeRTOS" from ./lib/ into Arduino/libraries folder 
-3. Replace \#include "config.h" with #include "../lib/config/src/config.h" in main.ino
+3. Replace \#include "Config.h" with #include "../lib/Config/src/Config.h" in main.ino
 4. Download any missing libraries using the Arduino Library Manager
 5. Go to config setup
 
