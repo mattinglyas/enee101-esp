@@ -27,8 +27,8 @@
 
 #define MOTOR_XY_ENABLE_PIN 4
 
-#define LIMIT_X_LOW_PIN 12 // purple
-#define LIMIT_X_HIGH_PIN 13 // orange
+#define LIMIT_X_LOW_PIN 36 // purple
+#define LIMIT_X_HIGH_PIN 39 // orange
 #define LIMIT_Y_LOW_PIN 34 // yellow 
 #define LIMIT_Y_HIGH_PIN 35 // white 
 
