@@ -4,7 +4,9 @@ Modified version of example sketch demonstrating ability to send and receive coo
 
 Program accepts inputs as direct methods from Azure IoT hub to move stepper motors and sends ultrasonic sensor distance data to hub. 
 
-Designed for the ENEE101 Covid19 Response Project. 
+Designed for the ENEE101 Covid19 Response Project. For more information, see University of Maryland website:
+https://ece.umd.edu/news/story/professor-romel-gomez-and-students-participate-in-iotswc20-digital-summit
+
 
 ## Setup
 
